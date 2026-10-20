@@ -1,0 +1,25 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local runtime storage, caches, API keys, and downloaded/translated books
+backend/storage/settings.json
+backend/storage/*.db
+backend/storage/*.db-shm
+backend/storage/*.db-wal
+backend/storage/downloads/
+backend/storage/outputs/
+backend/storage/uploads/
+
+# OS & Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log

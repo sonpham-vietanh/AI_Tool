@@ -1,0 +1,855 @@
+<!DOCTYPE html>
+<html lang="vi" class="dark" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BookTranslator Studio — 5-Agent AI Book Translation &amp; Publishing OS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Lora:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body class="serif-preview">
+
+  <div class="app-shell">
+
+    <!-- =====================================================================
+         LEFT SIDEBAR: BRAND, QUICK NAVIGATION, CAMPAIGN QUEUE & ENGINE DOCK
+         (Inspired by LobeChat / OpenWebUI / Linear / Readest)
+         ===================================================================== -->
+    <aside class="app-sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-logo-box">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/>
+            <path d="m9 10 2 2 4-4"/>
+          </svg>
+        </div>
+        <div class="brand-text-col">
+          <div class="brand-name-row">
+            <span class="brand-name">BookTranslator</span>
+            <span class="brand-tag">PRO</span>
+          </div>
+          <span class="brand-sub">5-Agent Publishing Studio</span>
+        </div>
+      </div>
+
+      <!-- Primary New Translation Button -->
+      <div class="sidebar-cta-wrap">
+        <button type="button" id="btnNewCampaignSidebar" class="btn-new-campaign">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+          <span>Dịch &amp; Xuất Bản Sách Mới</span>
+        </button>
+      </div>
+
+      <!-- Workspace Mode Switcher in Sidebar -->
+      <div class="sidebar-nav-group">
+        <div class="sidebar-section-label">CHẾ ĐỘ LÀM VIỆC</div>
+        <button type="button" class="sidebar-nav-item active" data-nav-mode="search">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+          </svg>
+          <span>Săn Sách &amp; Dịch Tự Động</span>
+        </button>
+        <button type="button" class="sidebar-nav-item" data-nav-mode="upload">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/>
+          </svg>
+          <span>Tải File Sách (.EPUB / .PDF)</span>
+        </button>
+        <button type="button" class="sidebar-nav-item" data-nav-mode="quicktext">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+          </svg>
+          <span>Sandbox Dịch Nhanh (A3+A4)</span>
+        </button>
+      </div>
+
+      <!-- Active & Past Book Campaigns List -->
+      <div class="sidebar-jobs-section">
+        <div class="sidebar-header">
+          <span class="sidebar-section-label">DỰ ÁN SÁCH (<strong id="jobsTotalBadge">0</strong>)</span>
+          <button type="button" id="refreshJobsBtn" class="btn-icon-ghost" title="Làm mới danh sách dự án">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>
+            </svg>
+          </button>
+        </div>
+
+        <div id="jobsListContainer" class="jobs-stack">
+          <div class="empty-sidebar" id="emptyJobsState">
+            Chưa có chiến dịch nào đang chạy.
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom Engine & API Key Vault Dock -->
+      <div class="sidebar-footer">
+        <div class="active-engine-chip" id="headerProviderPill" title="Bấm để cấu hình Kho Key & Nguồn AI">
+          <span class="dot-online" id="engineStatusDot"></span>
+          <div class="engine-chip-info">
+            <div class="engine-chip-model" id="headerModelText">Claude Sonnet 5.5</div>
+            <div class="engine-chip-meta">
+              <span id="headerKeysCountText">1 Key</span>
+              <span>·</span>
+              <span id="headerConcurrencyText">12 luồng</span>
+            </div>
+          </div>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-muted">
+            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>
+          </svg>
+        </div>
+
+        <div class="sidebar-footer-btns">
+          <button class="btn-sidebar-util" id="btnClearCacheQuick" type="button" title="Xóa bộ nhớ đệm dịch thuật (SQLite Translation Cache)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/>
+            </svg>
+            <span>Cache: <strong id="headerCacheCountText">0</strong></span>
+          </button>
+
+          <button class="btn-sidebar-util btn-sidebar-vault" id="openSettingsBtn" type="button">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="m15.5 7.5 2.3 2.3a1 1 0 0 0 1.4 0l2.1-2.1a1 1 0 0 0 0-1.4L19 4"/><path d="m21 2-9.6 9.6"/><circle cx="7.5" cy="15.5" r="5.5"/>
+            </svg>
+            <span>Kho API Key</span>
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- =====================================================================
+         MAIN WORKBENCH AREA (TOPBAR + 5-AGENT COMMAND CENTER + BILINGUAL STUDIO)
+         ===================================================================== -->
+    <div class="app-main">
+
+      <!-- TOP STUDIO HEADER BAR -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <button type="button" id="btnToggleComposer" class="btn-toggle-composer" title="Thu gọn / Mở rộng Bảng Điều Phối 5 Agent để mở rộng không gian đọc & hiệu đính">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/>
+            </svg>
+            <span id="toggleComposerLabel">Trạm Điều Phối 5 Agent</span>
+          </button>
+
+          <!-- Segmented AI Engine Switcher -->
+          <div class="engine-Inline-switch" id="quickEngineModePills">
+            <button type="button" class="engine-pill active" data-provider="openai">Claude 5.5</button>
+            <button type="button" class="engine-pill" data-provider="gemini">Gemini Ultra</button>
+            <button type="button" class="engine-pill" data-provider="hybrid">Hybrid (Cả 2)</button>
+            <button type="button" class="engine-pill" data-provider="gtx">GTX Free</button>
+          </div>
+        </div>
+
+        <div class="topbar-right">
+          <div class="inline-lang-box">
+            <span class="lang-label-text">Đích:</span>
+            <select id="targetLangSelect" class="input-select-sm">
+              <option value="vi" selected>🇻🇳 Tiếng Việt</option>
+              <option value="en">🇬🇧 English</option>
+              <option value="zh">🇨🇳 Tiếng Trung</option>
+              <option value="ja">🇯🇵 Tiếng Nhật</option>
+              <option value="ko">🇰🇷 Tiếng Hàn</option>
+              <option value="fr">🇫🇷 Tiếng Pháp</option>
+              <option value="de">🇩🇪 Tiếng Đức</option>
+              <option value="es">🇪🇸 Tây Ban Nha</option>
+            </select>
+          </div>
+
+          <button type="button" id="btnRefreshModelsQuick" class="btn-icon-sm" title="Quét danh sách Model mới nhất từ API Gateway & Gemini">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/>
+            </svg>
+          </button>
+
+          <button type="button" id="btnToggleSerifFont" class="btn-icon-sm active-tool" title="Đổi phông chữ đọc sách (Serif Văn học / Sans Hiện đại)">
+            <span style="font-family: 'Lora', serif; font-weight: 600; font-size: 0.8rem;">Aa</span>
+          </button>
+
+          <button type="button" id="btnToggleTheme" class="btn-icon-sm" title="Chuyển chế độ Sáng (Giấy đọc sách) / Tối (Studio)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- MAIN SCROLLABLE WORKSPACE -->
+      <main class="workspace-scroll">
+
+        <!-- KHỐI 1: TRẠM ĐIỀU PHỐI 5 AGENT & GIAO VIỆC (COLLAPSIBLE WORKBENCH) -->
+        <section class="composer-card" id="composerSection">
+
+          <!-- 5-AGENT PIPELINE NODES (HORIZONTAL CONNECTED ARCHITECTURE) -->
+          <div class="agent-pipeline-grid" id="agentPipelineCards">
+            <!-- AGENT 1 -->
+            <div class="agent-node-card" data-agent-node="1">
+              <div class="agent-node-top">
+                <span class="agent-num-tag">01 · SCOUT</span>
+                <span class="agent-state-dot" id="agentNodeState1">Sẵn sàng</span>
+              </div>
+              <div class="agent-node-title">Săn Sách &amp; Giải Mã</div>
+              <div class="agent-node-desc">Quét LibGen / Archive &amp; bóc tách DOM chương mục</div>
+              <div class="agent-node-footer">
+                <select id="preferredFormatSelect" class="agent-mini-select" title="Định dạng ưu tiên khi tìm sách">
+                  <option value="auto" selected>Ưu tiên: EPUB ➔ PDF</option>
+                  <option value="epub">Chỉ ưu tiên EPUB / DOCX</option>
+                  <option value="pdf">Ưu tiên PDF</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- AGENT 2 -->
+            <div class="agent-node-card" data-agent-node="2">
+              <div class="agent-node-top">
+                <span class="agent-num-tag">02 · GLOSSARY</span>
+                <label class="agent-toggle-pill" title="Bật/tắt Agent lập từ điển thuật ngữ & xưng hô">
+                  <input type="checkbox" id="autoGlossaryCheckbox" checked />
+                  <span>Bật</span>
+                </label>
+              </div>
+              <div class="agent-node-title">Kỹ Sư Thuật Ngữ</div>
+              <div class="agent-node-desc">Đọc mẫu sách, lập bảng tên riêng &amp; quy tắc xưng hô</div>
+              <div class="agent-node-footer">
+                <select id="agentGlossaryModelSelect" class="agent-mini-select" title="Chọn Model cho Agent 2 (Lập từ điển)">
+                  <option value="" selected>Theo Model chính</option>
+                  <option value="cc/claude-sonnet-5-5">Claude Sonnet 5.5</option>
+                  <option value="gemini-2.5-pro">Gemini 2.5 Pro / Ultra</option>
+                  <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                  <option value="cc/claude-haiku-4-5-20251001">Claude Haiku 4.5</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- AGENT 3 -->
+            <div class="agent-node-card agent-node-core" data-agent-node="3">
+              <div class="agent-node-top">
+                <span class="agent-num-tag">03 · TRANSLATOR</span>
+                <span class="agent-state-dot" id="agentNodeState3">Đa luồng</span>
+              </div>
+              <div class="agent-node-title">Dịch Thuật Đa Luồng</div>
+              <div class="agent-node-desc">Dịch song song toàn bộ các chương kèm ngữ cảnh cuốn chiếu</div>
+              <div class="agent-node-footer">
+                <select id="quickModelSelect" class="agent-mini-select" title="Chọn Model cho Agent 3 (Dịch thuật chính)">
+                  <optgroup label="Claude Gateway (abc-tunnel)" id="optgroupGateway">
+                    <option value="cc/claude-sonnet-5-5" selected>Claude Sonnet 5.5 (Khuyên dùng)</option>
+                    <option value="cc/claude-opus-5-5">Claude Opus 5.5 (Cao cấp nhất)</option>
+                    <option value="cc/claude-opus-5">Claude Opus 5.0</option>
+                    <option value="cc/claude-fable-5-1">Claude Fable 5.1 (Tiểu thuyết)</option>
+                    <option value="cc/claude-fable-5">Claude Fable 5.0</option>
+                    <option value="cc/claude-sonnet-5">Claude Sonnet 5.0</option>
+                    <option value="cc/claude-haiku-4-5-20251001">Claude Haiku 4.5 (Siêu tốc)</option>
+                  </optgroup>
+                  <optgroup label="Google Gemini Ultra / Pro" id="optgroupGemini">
+                    <option value="gemini-2.5-pro">Gemini 2.5 Pro / Ultra</option>
+                    <option value="gemini-ultra">Gemini Ultra</option>
+                    <option value="gemini-2.5-flash">Gemini 2.5 Flash (1M Context)</option>
+                    <option value="gemini-2.5-flash-lite-preview-06-17">Gemini 2.5 Flash Lite</option>
+                    <option value="gemini-2.0-pro-exp-02-05">Gemini 2.0 Pro Exp</option>
+                    <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                    <option value="gemini-1.5-pro-latest">Gemini 1.5 Pro (2M Context)</option>
+                  </optgroup>
+                  <optgroup label="Chế độ Gộp (Hybrid)" id="optgroupHybrid">
+                    <option value="hybrid:claude+gemini">Song song: Claude 5.5 + Gemini Ultra</option>
+                  </optgroup>
+                  <optgroup label="Các Model khác" id="optgroupOther">
+                    <option value="deepseek-chat">DeepSeek V3 (deepseek-chat)</option>
+                    <option value="deepseek-reasoner">DeepSeek R1 (deepseek-reasoner)</option>
+                    <option value="gpt-4o">OpenAI GPT-4o</option>
+                    <option value="gtx-free">Google Translate GTX (Miễn phí)</option>
+                  </optgroup>
+                </select>
+              </div>
+            </div>
+
+            <!-- AGENT 4 -->
+            <div class="agent-node-card" data-agent-node="4">
+              <div class="agent-node-top">
+                <span class="agent-num-tag">04 · CRITIC</span>
+                <label class="agent-toggle-pill" title="Bật/tắt Agent Tổng Biên Tập tự động đọc lại và chuốt câu văn tiếng Việt">
+                  <input type="checkbox" id="enableEditorAgentCheckbox" checked />
+                  <span>Bật</span>
+                </label>
+              </div>
+              <div class="agent-node-title">Tổng Biên Tập Văn Phong</div>
+              <div class="agent-node-desc">Đối chiếu bản gốc &amp; bản thô, xoá dịch máy, chuốt mượt câu</div>
+              <div class="agent-node-footer">
+                <select id="agentEditorModelSelect" class="agent-mini-select" title="Chọn Model cho Agent 4 (Biên tập & Chuốt văn)">
+                  <option value="cc/claude-sonnet-5-5" selected>Claude Sonnet 5.5 (Mượt nhất)</option>
+                  <option value="cc/claude-opus-5-5">Claude Opus 5.5 (Tinh tế nhất)</option>
+                  <option value="cc/claude-fable-5-1">Claude Fable 5.1 (Văn học)</option>
+                  <option value="gemini-2.5-pro">Gemini 2.5 Pro / Ultra</option>
+                  <option value="">Theo Model dịch chính</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- AGENT 5 -->
+            <div class="agent-node-card" data-agent-node="5">
+              <div class="agent-node-top">
+                <span class="agent-num-tag">05 · PUBLISHER</span>
+                <span class="agent-state-dot" id="agentNodeState5">Đa định dạng</span>
+              </div>
+              <div class="agent-node-title">Chế Bản &amp; Đóng Gói</div>
+              <div class="agent-node-desc">Giữ nguyên bìa, ảnh, bố cục &amp; xuất EPUB, PDF, Word (.DOCX)</div>
+              <div class="agent-node-footer">
+                <select id="bilingualModeSelect" class="agent-mini-select" title="Kiểu đóng gói xuất bản">
+                  <option value="mono" selected>Xuất Đơn ngữ (+ kèm Song ngữ)</option>
+                  <option value="bilingual">Xuất Song ngữ (Gốc + Dịch)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- DISPATCHER WORKBENCH (SEARCH / UPLOAD / QUICK SANDBOX) -->
+          <div class="dispatcher-bar">
+            <div class="dispatcher-top-row">
+              <div class="mode-tabs" role="tablist">
+                <button type="button" class="mode-tab active" id="tabSearchMode" data-mode="search">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                  <span>Tìm sách trực tuyến</span>
+                </button>
+                <button type="button" class="mode-tab" id="tabUploadMode" data-mode="upload">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+                  <span>Tải file sách (.EPUB, .DOCX, .PDF)</span>
+                </button>
+                <button type="button" class="mode-tab" id="tabQuickTextMode" data-mode="quicktext">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                  <span>Dịch nhanh Đoạn / Chương lẻ</span>
+                </button>
+              </div>
+
+              <div class="quick-book-chips">
+                <span class="chip-hint">Gợi ý:</span>
+                <button type="button" class="quick-chip" data-sample="Atomic Habits">Atomic Habits</button>
+                <button type="button" class="quick-chip" data-sample="Deep Work">Deep Work</button>
+                <button type="button" class="quick-chip" data-sample="The Psychology of Money">Psychology of Money</button>
+                <button type="button" class="quick-chip" data-sample="Thinking, Fast and Slow">Thinking, Fast &amp; Slow</button>
+              </div>
+            </div>
+
+            <!-- PANE 1: TÌM SÁCH TRÊN MẠNG -->
+            <div id="searchModePane" class="mode-pane active">
+              <div class="search-bar-row">
+                <div class="search-input-wrap">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="search-icon">
+                    <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+                  </svg>
+                  <input
+                    type="text"
+                    id="bookQueryInput"
+                    class="search-input"
+                    placeholder="Nhập tên sách (Anh/Việt), tác giả hoặc tài liệu để Agent 1 săn mọi phiên bản & bản leak (VD: Atomic Habits, Clean Code, Tâm lý học về tiền...)"
+                    autocomplete="off"
+                  />
+                  <button type="button" id="clearQueryBtn" class="clear-btn hidden" title="Xóa">✕</button>
+                </div>
+
+                <button type="button" id="btnSearchAndPick" class="btn btn-primary" title="Quét toàn mạng lấy danh sách mọi ấn bản, tái bản & bản leak để bạn chọn trước khi dịch">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                  <span>Tìm Mọi Phiên Bản &amp; Chọn Sách</span>
+                </button>
+                <button type="button" id="btnOneClickAuto" class="btn btn-secondary" title="Tự động chọn ấn bản điểm cao nhất và dịch ngay">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  <span>Dịch Tự Động 1-Click</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- PANE 2: KÉO THẢ FILE TỪ MÁY -->
+            <div id="uploadModePane" class="mode-pane hidden">
+              <div class="dropzone-compact" id="fileDropzone">
+                <input type="file" id="fileUploadInput" accept=".epub,.docx,.pdf,.txt,.md,.mobi" class="hidden" />
+                <div class="dropzone-content">
+                  <div class="dropzone-icon-box">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><path d="M12 18v-6"/><path d="m9 15 3-3 3 3"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <div class="dropzone-main-text">
+                      <strong>Kéo thả file sách vào đây</strong> hoặc <span class="text-link">bấm để chọn file từ máy tính</span>
+                    </div>
+                    <div class="dropzone-sub-badges">
+                      <span class="fmt-pill">EPUB (Giữ nguyên CSS/Ảnh)</span>
+                      <span class="fmt-pill">PDF (Giữ Layout/Font)</span>
+                      <span class="fmt-pill">DOCX (Word)</span>
+                      <span class="fmt-pill">TXT / Markdown</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div id="selectedFileBar" class="selected-file-bar hidden">
+                <div class="selected-file-info">
+                  <span class="fmt-badge fmt-epub">FILE</span>
+                  <strong id="selectedFileName">filename.epub</strong>
+                  <span id="selectedFileSize" class="text-muted">(2.4 MB)</span>
+                </div>
+                <div class="selected-file-actions">
+                  <button type="button" id="btnCancelFile" class="btn btn-ghost-sm">Đổi file khác</button>
+                  <button type="button" id="btnStartUploadTranslate" class="btn btn-primary">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                    <span>Kích hoạt 5 Agent Dịch File Này</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- PANE 3: DỊCH NHANH ĐOẠN VĂN / CHƯƠNG LẺ (AGENT 3 + AGENT 4 SANDBOX) -->
+            <div id="quickTextModePane" class="mode-pane hidden">
+              <div class="quick-sandbox-grid">
+                <div class="sandbox-col">
+                  <div class="sandbox-col-header">
+                    <strong>Văn bản / Chương gốc (Source)</strong>
+                    <button type="button" id="btnClearQuickText" class="btn btn-ghost-sm">Xóa trắng</button>
+                  </div>
+                  <textarea
+                    id="quickSourceTextarea"
+                    class="input-textarea sandbox-textarea"
+                    rows="5"
+                    placeholder="Dán đoạn văn, trang sách hoặc 1 chương bất kỳ vào đây để kiểm thử chất lượng phối hợp giữa Agent 3 (Dịch thô) & Agent 4 (Tổng Biên Tập chuốt văn)..."
+                  ></textarea>
+                  <div class="sandbox-actions-row">
+                    <button type="button" id="btnRunQuickTranslate" class="btn btn-primary">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                      <span>Chạy Agent 3 + Agent 4 Dịch &amp; Biên Tập</span>
+                    </button>
+                    <span id="quickTranslateMetaText" class="text-muted text-xs"></span>
+                  </div>
+                </div>
+
+                <div class="sandbox-col">
+                  <div class="sandbox-col-header">
+                    <strong>Bản dịch Xuất bản (Đối chiếu Agent 4 &amp; Agent 3)</strong>
+                    <div class="sandbox-header-btns">
+                      <button type="button" id="btnCopyQuickResult" class="btn btn-ghost-sm">Copy bản chuốt</button>
+                    </div>
+                  </div>
+                  <div id="quickResultContainer" class="sandbox-result-box">
+                    <div class="text-muted text-xs">Bản dịch chuẩn xuất bản của Agent 4 và bản dịch thô của Agent 3 sẽ hiển thị đối chiếu tại đây...</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- COMPACT PARAMETER RIBBON (GENRE · SAMPLE RANGE · CUSTOM PROMPT · GLOSSARY GATE) -->
+            <div class="advanced-dispatch-bar">
+              <div class="adv-field">
+                <label for="genrePresetSelect">Thể loại &amp; Văn phong</label>
+                <select id="genrePresetSelect" class="input-select-sm">
+                  <option value="auto" selected>Tự động theo ngữ cảnh sách</option>
+                  <option value="business">Kinh doanh, Quản trị &amp; Tài chính</option>
+                  <option value="tech">Công nghệ, Phần mềm &amp; AI</option>
+                  <option value="selfhelp">Tâm lý học &amp; Self-Help</option>
+                  <option value="literature">Tiểu thuyết Văn học &amp; Tự truyện</option>
+                  <option value="xianxia">Tiên hiệp, Kiếm hiệp &amp; Cổ trang</option>
+                  <option value="lightnovel">Light Novel &amp; Truyện hiện đại</option>
+                  <option value="academic">Học thuật, Y khoa &amp; Nghiên cứu</option>
+                </select>
+              </div>
+
+              <div class="adv-field">
+                <label for="chapterLimitSelect">Phạm vi dịch / Dịch thử</label>
+                <div class="adv-inline-pair">
+                  <select id="chapterLimitSelect" class="input-select-sm">
+                    <option value="0" selected>Toàn bộ sách (100%)</option>
+                    <option value="1">Dịch thử 1 chương đầu</option>
+                    <option value="2">Dịch thử 2 chương đầu</option>
+                    <option value="3">Dịch thử 3 chương đầu</option>
+                    <option value="5">Dịch thử 5 chương đầu</option>
+                  </select>
+                  <input
+                    type="text"
+                    id="pageRangeInput"
+                    class="input-text-sm"
+                    placeholder="Trang/Chương (VD: 1-5)"
+                    title="Chỉ định khoảng trang PDF hoặc số thứ tự chương cần dịch (VD: 1-5 hoặc 1,3,5)"
+                  />
+                </div>
+              </div>
+
+              <div class="adv-field adv-field-wide">
+                <label for="quickCustomPromptInput">Chỉ dẫn riêng cho cuốn sách này (Custom Prompt)</label>
+                <input
+                  type="text"
+                  id="quickCustomPromptInput"
+                  class="input-text-sm"
+                  placeholder="VD: Xưng hô 'tôi - bạn', giữ nguyên thuật ngữ tiếng Anh trong ngoặc đơn..."
+                />
+              </div>
+
+              <div class="adv-field adv-field-check">
+                <label class="check-label" title="Sau khi Agent 2 trích xuất xong bảng thuật ngữ, hệ thống sẽ tạm dừng để bạn kiểm tra/sửa rồi mới cho Agent 3 dịch">
+                  <input type="checkbox" id="pauseForGlossaryCheckbox" />
+                  <span>Duyệt Từ điển Agent 2 trước khi dịch</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- KẾT QUẢ TÌM KIẾM ĐA PHIÊN BẢN & SÁCH LEAK (Drawer) -->
+          <div id="searchResultsSection" class="search-results-drawer hidden">
+            <div class="results-bar">
+              <div class="results-bar-left">
+                <strong>Bước 1: Chọn Ấn Bản / Phiên Bản Sách Agent 1 Tìm Thấy</strong>
+                <span id="searchResultsCount" class="badge-pill">0</span>
+                <div class="edition-filter-pills" id="editionFilterPills" style="display:inline-flex;gap:6px;margin-left:10px;">
+                  <button type="button" class="btn btn-ghost-sm active-filter" data-fmt-filter="all">Tất cả</button>
+                  <button type="button" class="btn btn-ghost-sm" data-fmt-filter="epub">EPUB</button>
+                  <button type="button" class="btn btn-ghost-sm" data-fmt-filter="pdf">PDF</button>
+                  <button type="button" class="btn btn-ghost-sm" data-fmt-filter="leak">Bản Leak (GitHub / Drive / Web)</button>
+                </div>
+              </div>
+              <button type="button" id="closeSearchResultsBtn" class="btn btn-ghost-sm">Đóng ✕</button>
+            </div>
+
+            <div id="searchLoadingState" class="loading-inline hidden">
+              <div class="spinner-sm"></div>
+              <span>Agent 1 đang săn lùng mọi ấn bản, tái bản &amp; sách leak trên GitHub, Google Drive, Archive.org, LibGen, Anna's Archive...</span>
+            </div>
+
+            <div class="table-wrap" id="searchResultsTableWrap">
+              <table class="clean-table">
+                <thead>
+                  <tr>
+                    <th>Ấn bản &amp; Phiên bản sách</th>
+                    <th>Tác giả</th>
+                    <th>Định dạng</th>
+                    <th>Năm / Bản</th>
+                    <th>Nguồn phát hiện</th>
+                    <th class="text-right">Bước 2: Chọn &amp; Dịch</th>
+                  </tr>
+                </thead>
+                <tbody id="searchResultsTbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- KHỐI 2: BILINGUAL CAT & LITERARY PUBLISHING STUDIO (IMMERSIVE TRANSLATE / DEEPL STYLE) -->
+        <section class="studio-card" id="studioSection">
+          <!-- Khi chưa có job nào -->
+          <div id="studioEmptyView" class="empty-stage">
+            <div class="empty-stage-illustration">
+              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+                <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+              </svg>
+            </div>
+            <h3>Bàn Biên Tập &amp; Chế Bản Song Ngữ</h3>
+            <p>Nhập tên sách hoặc kéo thả file sách ở trên để khởi chạy dây chuyền <b>5 Agent</b>. Bản dịch thời gian thực, đối chiếu bản thô (Agent 3) vs bản chuốt văn (Agent 4) và bảng thuật ngữ sẽ hiển thị tại đây.</p>
+          </div>
+
+          <!-- Khi đang mở 1 Job -->
+          <div id="studioActiveView" class="active-stage hidden">
+
+            <!-- Hàng tiêu đề Job & Telemetry -->
+            <div class="studio-job-header">
+              <div class="job-title-wrap">
+                <div class="job-meta-tags">
+                  <span id="activeJobFormatBadge" class="fmt-badge fmt-epub">EPUB</span>
+                  <span id="activeJobStatusBadge" class="job-status-badge status-running">Đang chạy</span>
+                  <span id="activeJobLangBadge" class="lang-tag-pill">➔ Tiếng Việt</span>
+                  <span id="activeJobEditedBadge" class="edited-stat-pill">Agent 4 đã chuốt: 0 đoạn</span>
+                </div>
+                <div class="job-headline-row">
+                  <h2 id="activeJobTitle" class="job-main-title">Tên sách</h2>
+                  <span id="activeJobMessage" class="job-sub-msg">Đang chuẩn bị...</span>
+                </div>
+              </div>
+
+              <div class="studio-header-actions">
+                <button type="button" id="btnCancelActiveJob" class="btn btn-danger-sm">
+                  Dừng tiến trình
+                </button>
+              </div>
+            </div>
+
+            <!-- Thanh Tiến Độ Hợp Nhất & 5 Bước Agent -->
+            <div class="progress-box">
+              <div class="progress-info-row">
+                <div class="progress-left-metrics">
+                  <strong class="pct-big" id="activeJobPercent">0%</strong>
+                  <span class="text-muted text-sm" id="activeJobChunks">(0 / 0 đoạn)</span>
+                </div>
+                <div class="progress-meta-right">
+                  <span id="activeJobSpeed">-- đoạn/phút</span>
+                  <span class="chip-sep">·</span>
+                  <span id="activeJobEta">Đang tính...</span>
+                </div>
+              </div>
+
+              <div class="progress-track">
+                <div class="progress-fill" id="activeJobProgressFill" style="width: 0%"></div>
+              </div>
+
+              <div class="steps-row steps-row-5" id="jobStepper">
+                <div class="step-item" data-step="1"><span class="step-num">1</span> Săn &amp; Giải mã</div>
+                <div class="step-item" data-step="2"><span class="step-num">2</span> Lập Từ điển</div>
+                <div class="step-item" data-step="3"><span class="step-num">3</span> Dịch Đa luồng</div>
+                <div class="step-item" data-step="4"><span class="step-num">4</span> Biên tập Văn phong</div>
+                <div class="step-item" data-step="5"><span class="step-num">5</span> Xuất bản Ấn phẩm</div>
+              </div>
+            </div>
+
+            <!-- Banner chờ duyệt Từ điển Agent 2 (Human-in-the-Loop) -->
+            <div id="glossaryApprovalBanner" class="approval-banner hidden">
+              <div class="approval-banner-text">
+                <strong>⏸️ Agent 2 đã trích xuất xong Bảng thuật ngữ &amp; Xưng hô!</strong>
+                <span>Kiểm tra hoặc chỉnh sửa thuật ngữ ở tab <b>Từ điển Agent 2</b> bên dưới, sau đó bấm duyệt để Agent 3 &amp; 4 bắt đầu dịch.</span>
+              </div>
+              <button type="button" id="btnApproveGlossaryBanner" class="btn btn-success">
+                Duyệt Từ Điển &amp; Tiếp Tục Dịch
+              </button>
+            </div>
+
+            <!-- Khung tải file khi hoàn tất -->
+            <div id="downloadOutputsBar" class="download-bar hidden">
+              <div class="download-bar-text">
+                <span class="download-ready-dot"></span>
+                <strong>Ấn phẩm đã chế bản hoàn tất — Tải về máy:</strong>
+              </div>
+              <div class="download-btns">
+                <a id="btnDownloadPrimary" href="#" target="_blank" class="btn btn-success btn-sm">
+                  📥 Bản chính (<span id="primaryExtText">.EPUB</span>)
+                </a>
+                <a id="btnDownloadBilingual" href="#" target="_blank" class="btn btn-secondary btn-sm">
+                  📖 Bản Song ngữ
+                </a>
+                <a id="btnDownloadDocx" href="#" target="_blank" class="btn btn-outline-sm">
+                  📄 Bản Word (.DOCX)
+                </a>
+                <button type="button" id="btnRepackageOutputs" class="btn btn-outline-sm" title="Đóng gói lại file xuất bản sau khi bạn sửa bản dịch hoặc từ điển">
+                  🔄 Đóng gói lại (Agent 5)
+                </button>
+              </div>
+            </div>
+
+            <!-- Sub-navigation Tabs: Bilingual Editor | Agent Handoff Logs | Glossary -->
+            <div class="preview-tabs-bar">
+              <div class="preview-tabs">
+                <button type="button" class="subtab-btn active" data-subtab="preview" id="subtabPreviewBtn">
+                  <span>Bàn Hiệu Đính Song Ngữ</span>
+                  <span class="live-dot" id="liveIndicatorBadge">LIVE</span>
+                </button>
+                <button type="button" class="subtab-btn" data-subtab="glossary" id="subtabGlossaryBtn">
+                  <span>Từ điển Thuật ngữ Agent 2</span>
+                  <span class="tab-count-pill" id="glossaryCountBadge">0</span>
+                </button>
+                <button type="button" class="subtab-btn" data-subtab="agentlogs" id="subtabAgentLogsBtn">
+                  <span>Nhật ký Phối hợp 5 Agent</span>
+                  <span class="tab-count-pill" id="agentLogsCountBadge">0</span>
+                </button>
+              </div>
+
+              <div class="preview-toolbar-right">
+                <label class="check-label text-xs">
+                  <input type="checkbox" id="autoScrollPreviewCheckbox" checked />
+                  <span>Tự cuộn theo tiến độ dịch</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- Tab 1: Bàn Hiệu Đính Song Ngữ (Side-by-Side Reader & Inline Editor) -->
+            <div id="subtabPreviewPane" class="subtab-pane active">
+              <div class="preview-header-cols">
+                <div>NGUYÊN BẢN GỐC (SOURCE TEXT)</div>
+                <div>BẢN DỊCH XUẤT BẢN (AGENT 3 TRANSLATOR ➔ AGENT 4 CRITIC)</div>
+              </div>
+              <div id="livePreviewList" class="preview-list">
+                <div class="preview-empty-hint">Đang chờ các đoạn dịch đầu tiên từ Agent 3 &amp; Agent 4...</div>
+              </div>
+            </div>
+
+            <!-- Tab 2: Nhật ký Phối hợp 5 Agent -->
+            <div id="subtabAgentLogsPane" class="subtab-pane hidden">
+              <div id="agentLogsList" class="agent-logs-list">
+                <div class="preview-empty-hint">Chưa có sự kiện bàn giao nào giữa các Agent.</div>
+              </div>
+            </div>
+
+            <!-- Tab 3: Nội dung Từ điển thuật ngữ của Agent 2 -->
+            <div id="subtabGlossaryPane" class="subtab-pane hidden">
+              <div class="glossary-toolbar">
+                <div class="glossary-add-row">
+                  <input type="text" id="newGlossarySrcInput" class="input-text-sm" placeholder="Thuật ngữ / Tên gốc (VD: Deep Work)" />
+                  <input type="text" id="newGlossaryDstInput" class="input-text-sm" placeholder="Bản dịch chuẩn (VD: Làm việc sâu)" />
+                  <input type="text" id="newGlossaryNoteInput" class="input-text-sm" placeholder="Ghi chú / Xưng hô (Tùy chọn)" />
+                  <button type="button" id="btnAddGlossaryTerm" class="btn btn-secondary btn-sm">+ Thêm thuật ngữ</button>
+                </div>
+                <div class="glossary-actions-right">
+                  <input type="file" id="importGlossaryFileInput" accept=".json,.csv" class="hidden" />
+                  <button type="button" id="btnImportGlossary" class="btn btn-ghost-sm" title="Nhập từ điển từ file JSON hoặc CSV">Import CSV/JSON</button>
+                  <button type="button" id="btnExportGlossary" class="btn btn-ghost-sm" title="Xuất từ điển ra file JSON">Export JSON</button>
+                  <button type="button" id="btnSaveGlossaryChanges" class="btn btn-primary btn-sm">Lưu Từ Điển</button>
+                  <button type="button" id="btnApproveGlossaryTab" class="btn btn-success btn-sm hidden">Duyệt &amp; Dịch tiếp</button>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table class="clean-table">
+                  <thead>
+                    <tr>
+                      <th style="width: 44px;">#</th>
+                      <th>Thuật ngữ gốc (Source)</th>
+                      <th>Bản dịch chuẩn hóa (Target)</th>
+                      <th>Ghi chú ngữ cảnh / Xưng hô</th>
+                      <th style="width: 60px;" class="text-right">Xóa</th>
+                    </tr>
+                  </thead>
+                  <tbody id="glossaryTbody">
+                    <tr>
+                      <td colspan="5" class="text-center text-muted">Chưa có thuật ngữ nào.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+          </div>
+        </section>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- =======================================================================
+       MODAL CÀI ĐẶT NGUỒN AI & QUẢN LÝ KHO API KEY
+       ======================================================================= -->
+  <div id="settingsModalBackdrop" class="modal-backdrop hidden" aria-hidden="true">
+    <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <h3 id="settingsModalTitle">Cấu hình Nguồn AI &amp; Quản lý Kho API Key</h3>
+          <span class="modal-subtitle">Hỗ trợ xoay vòng đa Key tự động (Auto-Rotation) &amp; điều phối riêng từng Agent</span>
+        </div>
+        <button type="button" id="closeSettingsBtn" class="btn-close" title="Đóng">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="field-block">
+          <div class="field-label-row">
+            <label for="settingProviderSelect">Chế độ điều phối Nguồn AI chính</label>
+            <button type="button" id="btnDiscoverModelsModal" class="btn-link-sm">↻ Quét danh sách Model từ API</button>
+          </div>
+          <select id="settingProviderSelect" class="input-select">
+            <option value="openai" selected>Claude 5.5 Gateway (abc-tunnel.us)</option>
+            <option value="gemini">Google Gemini Ultra / AI Studio</option>
+            <option value="hybrid">Hybrid Song Song (Claude 5.5 + Gemini Ultra)</option>
+            <option value="gtx">Google Translate GTX (Miễn phí không cần Key)</option>
+            <option value="deepseek">DeepSeek Official API</option>
+            <option value="openrouter">OpenRouter AI</option>
+            <option value="ollama">Ollama Local (Chạy trên máy)</option>
+          </select>
+          <p class="help-text" id="providerHelpText">
+            Khi nhập đủ cả 2 Kho Key bên dưới, bạn có thể gán tự do từng Agent dùng Model khác nhau (VD: Agent 2 &amp; 3 dùng Gemini Ultra, Agent 4 Biên tập dùng Claude Opus/Sonnet 5.5).
+          </p>
+        </div>
+
+        <div class="vault-tabs-grid">
+          <!-- Khung 1: Claude Gateway -->
+          <div class="vault-box" id="vaultCardGateway">
+            <div class="vault-box-top">
+              <strong>Kho 1 · Claude / OpenAI Gateway</strong>
+              <span class="badge-pill" id="gatewayKeyCountBadge">1 Key</span>
+            </div>
+
+            <div class="field-block">
+              <label for="settingModelSelectGateway">Model Gateway mặc định</label>
+              <select id="settingModelSelectGateway" class="input-select">
+                <option value="cc/claude-sonnet-5-5">cc/claude-sonnet-5-5 (Khuyên dùng)</option>
+                <option value="cc/claude-opus-5-5">cc/claude-opus-5-5 (Opus 5.5)</option>
+                <option value="cc/claude-opus-5">cc/claude-opus-5 (Opus 5.0)</option>
+                <option value="cc/claude-fable-5-1">cc/claude-fable-5-1 (Fable 5.1)</option>
+                <option value="cc/claude-fable-5">cc/claude-fable-5 (Fable 5.0)</option>
+                <option value="cc/claude-sonnet-5">cc/claude-sonnet-5 (Sonnet 5.0)</option>
+                <option value="cc/claude-haiku-4-5-20251001">cc/claude-haiku-4-5 (Haiku 4.5)</option>
+              </select>
+              <input type="hidden" id="settingModelInput" value="cc/claude-sonnet-5-5" />
+            </div>
+
+            <div class="field-block">
+              <label for="settingBaseUrlInput">Base URL Gateway</label>
+              <input type="text" id="settingBaseUrlInput" class="input-text mono" value="https://ryg2i56.abc-tunnel.us/v1" />
+            </div>
+
+            <div class="field-block">
+              <label for="settingApiKeysTextarea">API Key Gateway (mỗi dòng 1 key)</label>
+              <textarea id="settingApiKeysTextarea" class="input-textarea mono" rows="3" placeholder="sk-..."></textarea>
+            </div>
+          </div>
+
+          <!-- Khung 2: Gemini Ultra -->
+          <div class="vault-box" id="vaultCardGemini">
+            <div class="vault-box-top">
+              <strong>Kho 2 · Google Gemini Ultra / Pro</strong>
+              <span class="badge-pill" id="geminiKeyCountBadge">0 Key</span>
+            </div>
+
+            <div class="field-block">
+              <label for="settingGeminiModelSelect">Model Gemini mặc định</label>
+              <select id="settingGeminiModelSelect" class="input-select">
+                <option value="gemini-2.5-pro" selected>gemini-2.5-pro (Gemini 2.5 Pro / Ultra)</option>
+                <option value="gemini-ultra">gemini-ultra (Gemini Ultra)</option>
+                <option value="gemini-2.5-flash">gemini-2.5-flash (Nhanh · 1M Context)</option>
+                <option value="gemini-2.5-flash-lite-preview-06-17">gemini-2.5-flash-lite</option>
+                <option value="gemini-2.0-pro-exp-02-05">gemini-2.0-pro-exp-02-05</option>
+                <option value="gemini-2.0-flash">gemini-2.0-flash</option>
+                <option value="gemini-1.5-pro-latest">gemini-1.5-pro-latest</option>
+              </select>
+              <input type="hidden" id="settingGeminiModelInput" value="gemini-2.5-pro" />
+            </div>
+
+            <div class="field-block">
+              <label for="settingGeminiBaseUrlInput">Base URL Gemini (Để trống nếu dùng Google AI Studio)</label>
+              <input type="text" id="settingGeminiBaseUrlInput" class="input-text mono" placeholder="Mặc định: Google AI Studio / Vertex" />
+            </div>
+
+            <div class="field-block">
+              <label for="settingGeminiApiKeysTextarea">API Key Gemini Ultra (mỗi dòng 1 key)</label>
+              <textarea id="settingGeminiApiKeysTextarea" class="input-textarea mono" rows="3" placeholder="Dán key AIzaSy... hoặc sk-... vào đây"></textarea>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-bottom-grid">
+          <div class="field-block">
+            <div class="field-label-row">
+              <label for="settingConcurrencyRange">Số luồng Agent 3 &amp; 4 chạy song song</label>
+              <strong><span id="concurrencyValueText">12</span> luồng</strong>
+            </div>
+            <input type="range" id="settingConcurrencyRange" min="1" max="32" value="12" class="input-range" />
+          </div>
+
+          <div class="field-block">
+            <label for="settingCustomPromptTextarea">Chỉ dẫn văn phong mặc định cho Agent 3 &amp; 4</label>
+            <input type="text" id="settingCustomPromptTextarea" class="input-text" placeholder="VD: Dịch văn phong sách kinh doanh hiện đại, câu văn gãy gọn..." />
+          </div>
+        </div>
+
+        <div id="testConnectionResult" class="connection-alert hidden"></div>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" id="btnTestConnection" class="btn btn-secondary">
+          Kiểm tra kết nối API
+        </button>
+        <div class="modal-footer-right">
+          <button type="button" id="btnCancelSettings" class="btn btn-ghost-sm">Hủy</button>
+          <button type="button" id="btnSaveSettings" class="btn btn-primary">
+            Lưu cấu hình
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST CONTAINER -->
+  <div id="toastContainer" class="toast-container" aria-live="polite"></div>
+
+  <script src="assets/app.js"></script>
+</body>
+</html>
