@@ -234,7 +234,7 @@
               <div class="agent-node-desc">Dịch song song toàn bộ các chương kèm ngữ cảnh cuốn chiếu</div>
               <div class="agent-node-footer">
                 <select id="quickModelSelect" class="agent-mini-select" title="Chọn Model cho Agent 3 (Dịch thuật chính)">
-                  <optgroup label="Claude Gateway (abc-tunnel)" id="optgroupGateway">
+                  <optgroup label="Claude Gateway" id="optgroupGateway">
                     <option value="cc/claude-sonnet-5-5" selected>Claude Sonnet 5.5 (Khuyên dùng)</option>
                     <option value="cc/claude-opus-5-5">Claude Opus 5.5 (Cao cấp nhất)</option>
                     <option value="cc/claude-opus-5">Claude Opus 5.0</option>
@@ -266,11 +266,11 @@
             </div>
 
             <!-- AGENT 4 -->
-            <div class="agent-node-card" data-agent-node="4">
+            <div class="agent-node-card agent-disabled" data-agent-node="4">
               <div class="agent-node-top">
-                <span class="agent-num-tag">04 · CRITIC</span>
-                <label class="agent-toggle-pill" title="Bật/tắt Agent Tổng Biên Tập tự động đọc lại và chuốt câu văn tiếng Việt">
-                  <input type="checkbox" id="enableEditorAgentCheckbox" checked />
+                <span class="agent-num-tag">04 · CRITIC (theo Chế độ dịch)</span>
+                <label class="agent-toggle-pill" title="Biên tập 2 lượt: Agent 4 đọc lại và chuốt từng batch. Văn mượt hơn nhưng chậm gần gấp đôi. Tắt = Agent 3 dịch và tự rà soát trong 1 lượt (nhanh, vẫn hay).">
+                  <input type="checkbox" id="enableEditorAgentCheckbox" />
                   <span>Bật</span>
                 </label>
               </div>
@@ -439,6 +439,16 @@
             <!-- COMPACT PARAMETER RIBBON (GENRE · SAMPLE RANGE · CUSTOM PROMPT · GLOSSARY GATE) -->
             <div class="advanced-dispatch-bar">
               <div class="adv-field">
+                <label for="translateModeSelect">Chế độ dịch</label>
+                <select id="translateModeSelect" class="input-select-sm" title="Nhanh: 1 lượt, batch lớn. Cân bằng: 1 lượt + BOOK BRIEF tự động. Chất lượng cao: thêm lượt biên tập Agent 4, batch nhỏ.">
+                  <option value="fast">Nhanh (1 lượt, batch lớn)</option>
+                  <option value="balanced" selected>Cân bằng (khuyên dùng)</option>
+                  <option value="quality">Chất lượng cao (+ biên tập Agent 4)</option>
+                </select>
+                <span class="mode-hint" id="translateModeHint"></span>
+              </div>
+
+              <div class="adv-field">
                 <label for="genrePresetSelect">Thể loại &amp; Văn phong</label>
                 <select id="genrePresetSelect" class="input-select-sm">
                   <option value="auto" selected>Tự động theo ngữ cảnh sách</option>
@@ -563,8 +573,14 @@
               </div>
 
               <div class="studio-header-actions">
+                <button type="button" id="btnResumeActiveJob" class="btn btn-primary btn-sm hidden">
+                  ▶ Tiếp tục
+                </button>
                 <button type="button" id="btnCancelActiveJob" class="btn btn-danger-sm">
                   Dừng tiến trình
+                </button>
+                <button type="button" id="btnDeleteActiveJob" class="btn btn-danger-sm hidden">
+                  🗑️ Xóa
                 </button>
               </div>
             </div>
@@ -577,7 +593,9 @@
                   <span class="text-muted text-sm" id="activeJobChunks">(0 / 0 đoạn)</span>
                 </div>
                 <div class="progress-meta-right">
-                  <span id="activeJobSpeed">-- đoạn/phút</span>
+                  <span id="activeJobElapsed" class="metric-chip">⏳ Đã chạy: --</span>
+                  <span class="chip-sep">·</span>
+                  <span id="activeJobSpeed" class="metric-chip">-- đoạn/phút</span>
                   <span class="chip-sep">·</span>
                   <span id="activeJobEta">Đang tính...</span>
                 </div>
@@ -640,6 +658,9 @@
                   <span>Từ điển Thuật ngữ Agent 2</span>
                   <span class="tab-count-pill" id="glossaryCountBadge">0</span>
                 </button>
+                <button type="button" class="subtab-btn" data-subtab="brief" id="subtabBriefBtn">
+                  <span>BOOK BRIEF (Agent 2)</span>
+                </button>
                 <button type="button" class="subtab-btn" data-subtab="agentlogs" id="subtabAgentLogsBtn">
                   <span>Nhật ký Phối hợp 5 Agent</span>
                   <span class="tab-count-pill" id="agentLogsCountBadge">0</span>
@@ -669,6 +690,20 @@
             <div id="subtabAgentLogsPane" class="subtab-pane hidden">
               <div id="agentLogsList" class="agent-logs-list">
                 <div class="preview-empty-hint">Chưa có sự kiện bàn giao nào giữa các Agent.</div>
+              </div>
+            </div>
+
+            <!-- Tab: BOOK BRIEF tự động (thể loại, độc giả, giọng văn, xưng hô, quy tắc) -->
+            <div id="subtabBriefPane" class="subtab-pane hidden">
+              <div class="brief-panel">
+                <p class="text-muted text-sm">
+                  Agent 2 tự phân tích sách và viết BOOK BRIEF (thể loại, độc giả, giọng văn, xưng hô, quy tắc văn phong). Bạn có thể chỉnh sửa; bản dịch tiếp theo và lần đóng gói lại sẽ dùng nội dung này.
+                </p>
+                <textarea id="bookBriefTextarea" class="brief-textarea" rows="12" placeholder="BOOK BRIEF sẽ xuất hiện sau khi Agent 2 phân tích sách..."></textarea>
+                <div class="brief-actions">
+                  <span id="bookBriefStatus" class="text-muted text-xs"></span>
+                  <button type="button" id="btnSaveBrief" class="btn btn-primary btn-sm">Lưu BOOK BRIEF</button>
+                </div>
               </div>
             </div>
 
@@ -736,7 +771,7 @@
             <button type="button" id="btnDiscoverModelsModal" class="btn-link-sm">↻ Quét danh sách Model từ API</button>
           </div>
           <select id="settingProviderSelect" class="input-select">
-            <option value="openai" selected>Claude 5.5 Gateway (abc-tunnel.us)</option>
+            <option value="openai" selected>Claude 5.5 Gateway (OpenAI-compatible)</option>
             <option value="gemini">Google Gemini Ultra / AI Studio</option>
             <option value="hybrid">Hybrid Song Song (Claude 5.5 + Gemini Ultra)</option>
             <option value="gtx">Google Translate GTX (Miễn phí không cần Key)</option>
@@ -773,7 +808,7 @@
 
             <div class="field-block">
               <label for="settingBaseUrlInput">Base URL Gateway</label>
-              <input type="text" id="settingBaseUrlInput" class="input-text mono" value="https://ryg2i56.abc-tunnel.us/v1" />
+              <input type="text" id="settingBaseUrlInput" class="input-text mono" placeholder="https://api.openai.com/v1" value="" />
             </div>
 
             <div class="field-block">

@@ -1,6 +1,9 @@
 import asyncio
+import json
 import logging
+import os
 import re
+import threading
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import quote
 
@@ -9,13 +12,20 @@ from pydantic import BaseModel, Field, field_validator
 
 from .cache import TranslationCache, default_cache
 from .glossary import (
+    apply_glossary_replacements,
     extract_candidate_terms_heuristic,
+    extract_proper_noun_candidates,
     filter_glossary_for_text,
+    find_missing_dst,
+    split_terms_section,
+    term_in_text,
     normalize_glossary,
     parse_llm_glossary_json,
 )
 from .prompts import (
     build_batch_user_prompt,
+    build_book_profile_prompt,
+    format_book_brief,
     build_editor_batch_user_prompt,
     build_editor_system_prompt,
     build_glossary_extraction_prompt,
@@ -44,6 +54,11 @@ GEMINI_SAFETY_SETTINGS = [
 ]
 
 
+def _is_google_key(key: str) -> bool:
+    """Key Google AI Studio: dạng cũ 'AIza...' hoặc dạng mới 'AQ.…'."""
+    return bool(key) and (key.startswith("AIza") or key.startswith("AQ."))
+
+
 class LLMConfig(BaseModel):
     provider: str = Field(
         default="openai",
@@ -53,7 +68,7 @@ class LLMConfig(BaseModel):
         default_factory=lambda: [os.environ["BTH_API_KEY"]] if os.environ.get("BTH_API_KEY") else []
     )
     model: str = Field(default="cc/claude-sonnet-5-5")
-    base_url: Optional[str] = Field(default="https://ryg2i56.abc-tunnel.us/v1")
+    base_url: Optional[str] = Field(default=None)
     gemini_api_keys: List[str] = Field(default_factory=list)
     gemini_model: str = Field(default="gemini-2.5-pro")
     gemini_base_url: Optional[str] = Field(default=None)
@@ -62,7 +77,13 @@ class LLMConfig(BaseModel):
     concurrency: int = Field(default=12, ge=1, le=32)
     bilingual: bool = Field(default=False)
     auto_glossary: bool = Field(default=True)
-    enable_editor_agent: bool = Field(default=True)
+    # Biên tập 2 lượt (Agent 4 gọi LLM lần 2 cho mỗi batch): văn mượt hơn nhưng chậm gấp ~2 lần.
+    # Mặc định tắt: Agent 3 đã tự rà soát văn phong trong cùng 1 lượt gọi.
+    enable_editor_agent: bool = Field(default=False)
+    batch_chars: int = Field(default=5000, ge=800, le=20000)
+    batch_items: int = Field(default=24, ge=1, le=60)
+    # None = tự chọn (Gemini 2.5 Flash: 0, Gemini 2.5 Pro: 128) để bớt thời gian "suy nghĩ"
+    thinking_budget: Optional[int] = Field(default=None, ge=0)
     agent_glossary_model: Optional[str] = Field(default=None)
     agent_translator_model: Optional[str] = Field(default=None)
     agent_editor_model: Optional[str] = Field(default="cc/claude-sonnet-5-5")
@@ -74,6 +95,9 @@ class LLMConfig(BaseModel):
     custom_glossary: List[Dict[str, str]] = Field(default_factory=list)
     temperature: float = Field(default=0.2, ge=0.0, le=2.0)
     fallback_to_google_free: bool = Field(default=True)
+    # Term memory: model báo lại bản dịch của tên riêng/thuật ngữ MỚI ngay trong lượt dịch batch
+    # (không tốn thêm lượt gọi) và tiêm vào glossary của các batch sau để nhất quán.
+    learn_terms: bool = Field(default=True)
 
     @field_validator("api_keys", "gemini_api_keys", mode="before")
     @classmethod
@@ -129,6 +153,13 @@ class TranslationLLMClient:
         self._key_lock = asyncio.Lock()
         self.agent_event_cb = agent_event_cb
         self.last_editor_diffs: Dict[str, Dict[str, str]] = {}
+        self.book_brief: str = ""
+        # Term memory (learned proper nouns / terms); `learned_terms` is a list of
+        # {"src","dst","note"} dicts in learning order, safe to read/serialize at any time.
+        self.learned_terms: List[Dict[str, str]] = []
+        self._learned_keys: set = set()
+        self._learn_lock = threading.Lock()
+        self.max_learned_terms = 200
 
     async def _emit_agent_event(self, agent_id: int, agent_name: str, action: str, detail: str = "", model: str = "") -> None:
         if self.agent_event_cb:
@@ -148,7 +179,7 @@ class TranslationLLMClient:
     async def _get_next_api_key(self, for_gemini: bool = False) -> str:
         if for_gemini:
             keys = self.config.gemini_api_keys or [
-                k for k in self.config.api_keys if k.startswith("AIza")
+                k for k in self.config.api_keys if _is_google_key(k)
             ] or self.config.api_keys
             if not keys:
                 return ""
@@ -178,7 +209,7 @@ class TranslationLLMClient:
             return "gemini" if has_gm else ("openai" if has_gw else "google_free")
         if m.startswith("gemini") and p != "openrouter":
             if self.config.gemini_api_keys or any(
-                k.startswith("AIza") for k in self.config.api_keys
+                _is_google_key(k) for k in self.config.api_keys
             ):
                 return "gemini"
         if model_override and (m.startswith("cc/") or m.startswith("claude") or m.startswith("gpt-") or m.startswith("deepseek")):
@@ -366,23 +397,49 @@ class TranslationLLMClient:
             iid = iid_match[-1]
             key, token = abuse_match[0]
 
-            r_tr = await client.post(
-                f"{base_url}ttranslatev3?IG={ig}&IID={iid}&isVertical=1",
-                data={
-                    "fromLang": "auto-detect",
-                    "to": to_lang,
-                    "text": text[:1000],
-                    "token": token,
-                    "key": key,
-                },
-            )
-            r_tr.raise_for_status()
-            payload = r_tr.json()
-            if isinstance(payload, list) and len(payload) > 0:
-                translations = payload[0].get("translations") or []
-                if translations and translations[0].get("text"):
-                    return translations[0]["text"]
-            raise RuntimeError(f"Unexpected Bing response: {str(payload)[:120]}")
+            pieces: List[str] = []
+            for chunk in self._split_for_bing(text):
+                r_tr = await client.post(
+                    f"{base_url}ttranslatev3?IG={ig}&IID={iid}&isVertical=1",
+                    data={
+                        "fromLang": "auto-detect",
+                        "to": to_lang,
+                        "text": chunk,
+                        "token": token,
+                        "key": key,
+                    },
+                )
+                r_tr.raise_for_status()
+                payload = r_tr.json()
+                translations = (
+                    (payload[0].get("translations") or [])
+                    if isinstance(payload, list) and payload
+                    else []
+                )
+                if not (translations and translations[0].get("text")):
+                    raise RuntimeError(f"Unexpected Bing response: {str(payload)[:120]}")
+                pieces.append(translations[0]["text"])
+            return "\n".join(pieces)
+
+    @staticmethod
+    def _split_for_bing(text: str, limit: int = 1000) -> List[str]:
+        chunks: List[str] = []
+        current = ""
+        for line in text.split("\n"):
+            while len(line) > limit:
+                if current:
+                    chunks.append(current)
+                    current = ""
+                chunks.append(line[:limit])
+                line = line[limit:]
+            if current and len(current) + len(line) + 1 > limit:
+                chunks.append(current)
+                current = line
+            else:
+                current = f"{current}\n{line}" if current else line
+        if current:
+            chunks.append(current)
+        return chunks
 
     async def _call_gemini(
         self,
@@ -431,19 +488,32 @@ class TranslationLLMClient:
         # Native Google AI Studio / Gemini Ultra REST API (:generateContent)
         # Map alias 'gemini-ultra' -> 'gemini-2.5-pro' on native googleapis endpoint if needed
         api_model = "gemini-2.5-pro" if raw_model.lower() == "gemini-ultra" else raw_model
-        url = f"{gemini_base}/models/{quote(api_model)}:generateContent?key={api_key}"
+        url = f"{gemini_base}/models/{quote(api_model)}:generateContent"
+
+        generation_config: Dict[str, Any] = {
+            "temperature": self.config.temperature,
+            "maxOutputTokens": 32768,
+        }
+        budget = self.config.thinking_budget
+        lowered = api_model.lower()
+        if budget is None and "2.5" in lowered:
+            budget = 128 if "pro" in lowered else 0
+        if budget is not None and "2.5" in lowered:
+            if "pro" in lowered:
+                budget = max(128, budget)
+            generation_config["thinkingConfig"] = {"thinkingBudget": budget}
 
         payload = {
             "systemInstruction": {"parts": [{"text": system_prompt}]},
             "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
-            "generationConfig": {
-                "temperature": self.config.temperature,
-            },
+            "generationConfig": generation_config,
             "safetySettings": GEMINI_SAFETY_SETTINGS,
         }
 
-        async with httpx.AsyncClient(timeout=90.0) as client:
-            resp = await client.post(url, json=payload)
+        async with httpx.AsyncClient(timeout=240.0) as client:
+            resp = await client.post(
+                url, json=payload, headers={"x-goog-api-key": api_key}
+            )
             resp.raise_for_status()
             data = resp.json()
 
@@ -494,7 +564,7 @@ class TranslationLLMClient:
         if "claude" not in model_name.lower() and "cc/" not in model_name.lower():
             payload["temperature"] = self.config.temperature
 
-        async with httpx.AsyncClient(timeout=90.0) as client:
+        async with httpx.AsyncClient(timeout=240.0) as client:
             resp = await client.post(url, headers=headers, json=payload)
             resp.raise_for_status()
             data = resp.json()
@@ -532,7 +602,7 @@ class TranslationLLMClient:
             "messages": [{"role": "user", "content": user_prompt}],
         }
 
-        async with httpx.AsyncClient(timeout=90.0) as client:
+        async with httpx.AsyncClient(timeout=240.0) as client:
             resp = await client.post(url, headers=headers, json=payload)
             resp.raise_for_status()
             data = resp.json()
@@ -672,15 +742,70 @@ class TranslationLLMClient:
         """
         if not matched_glossary or not translated_text:
             return translated_text
-        output = translated_text
-        for item in matched_glossary:
-            src = item.get("src", "").strip()
-            dst = item.get("dst", "").strip()
-            if src and dst and src.lower() != dst.lower():
-                pattern = re.compile(re.escape(src), re.IGNORECASE)
-                if pattern.search(output):
-                    output = pattern.sub(dst, output)
-        return output
+        return apply_glossary_replacements(translated_text, matched_glossary)
+
+    # ------------------------------------------------------------------ term memory
+    def _merged_glossary(
+        self, glossary: Optional[List[Dict[str, str]]]
+    ) -> Optional[List[Dict[str, str]]]:
+        """Static glossary first (takes precedence), then terms learned during this job."""
+        if not self.config.learn_terms or not self.learned_terms:
+            return glossary
+        with self._learn_lock:
+            learned = list(self.learned_terms)
+        return list(glossary or []) + learned
+
+    def _term_candidates(
+        self, combined_src: str, glossary: Optional[List[Dict[str, str]]]
+    ) -> List[str]:
+        if not self.config.learn_terms:
+            return []
+        known = [g.get("src", "") for g in (self._merged_glossary(glossary) or []) if isinstance(g, dict)]
+        return extract_proper_noun_candidates(combined_src, known, max_candidates=24)
+
+    def _learn_from_terms(
+        self, terms: List[tuple], combined_src: str, glossary: Optional[List[Dict[str, str]]]
+    ) -> int:
+        """Records model-reported (src, dst) pairs. First translation seen wins; bounded size."""
+        if not terms or not self.config.learn_terms:
+            return 0
+        static_keys = {
+            (g.get("src") or "").strip().lower() for g in (glossary or []) if isinstance(g, dict)
+        }
+        added = 0
+        with self._learn_lock:
+            for src, dst in terms:
+                key = src.strip().lower()
+                if (
+                    not key
+                    or key in self._learned_keys
+                    or key in static_keys
+                    or len(self.learned_terms) >= self.max_learned_terms
+                    or not term_in_text(src, combined_src)
+                    or re.fullmatch(r"[IVXLCDM]+\.?", src.strip())
+                    or src.strip().lower() == dst.strip().lower()
+                ):
+                    continue
+                self._learned_keys.add(key)
+                self.learned_terms.append({"src": src.strip(), "dst": dst.strip(), "note": "learned"})
+                added += 1
+        return added
+
+    @staticmethod
+    def _warn_missing_dst(
+        src_text: str, out_text: str, matched_glossary: Optional[List[Dict[str, str]]]
+    ) -> None:
+        """Post-check (no extra LLM call): mandated glossary dst absent from output -> warning."""
+        try:
+            missing = find_missing_dst(src_text, out_text, matched_glossary)
+        except Exception:  # never let a diagnostic break translation
+            return
+        if missing:
+            logger.warning(
+                "Glossary not honoured in %d term(s): %s",
+                len(missing),
+                "; ".join(f"{m['src']} => {m['dst']}" for m in missing[:5]),
+            )
 
     async def translate_text(
         self,
@@ -707,7 +832,7 @@ class TranslationLLMClient:
         if cached:
             return cached
 
-        matched_glossary = filter_glossary_for_text(text, glossary)
+        matched_glossary = filter_glossary_for_text(text, self._merged_glossary(glossary))
 
         async with self.semaphore:
             try:
@@ -725,6 +850,7 @@ class TranslationLLMClient:
                         custom_prompt=effective_prompt,
                         glossary=matched_glossary,
                         context=context,
+                        book_brief=self.book_brief,
                         is_batch=False,
                     )
                     translated = await self._call_llm_with_rotation(
@@ -759,7 +885,11 @@ class TranslationLLMClient:
                 else:
                     raise
 
-        if translated and translated.strip():
+        if matched_glossary and not self.config.enable_editor_agent:
+            self._warn_missing_dst(text, translated, matched_glossary)
+
+        untranslated = provider == "google_free" and translated.strip() == text.strip()
+        if translated and translated.strip() and not untranslated:
             self.cache.set(text, translated, target_lang, provider, cache_model_key)
 
         return translated
@@ -772,6 +902,9 @@ class TranslationLLMClient:
         """
         if not raw_output or expected_count <= 0:
             return None
+
+        # An optional trailing [[TERMS]] section is not part of the last paragraph.
+        raw_output = split_terms_section(raw_output)[0]
 
         # Match [[#0]], [[ #0 ]], [#0], etc. (tolerant of minor spacing variations)
         pattern = re.compile(r"\[\[\s*#\s*(\d+)\s*\]\]")
@@ -824,6 +957,7 @@ class TranslationLLMClient:
                 target_lang=self.config.target_lang,
                 custom_prompt=effective_prompt,
                 glossary=matched_glossary,
+                book_brief=self.book_brief,
                 is_batch=True,
             )
             user_prompt = build_editor_batch_user_prompt(sources, drafts)
@@ -868,7 +1002,7 @@ class TranslationLLMClient:
             return draft_text
         ed_override = self.config.agent_editor_model or self.config.model
         ed_provider = self._effective_provider(model_override=ed_override)
-        matched_glossary = filter_glossary_for_text(src_text, glossary)
+        matched_glossary = filter_glossary_for_text(src_text, self._merged_glossary(glossary))
         if ed_provider == "google_free":
             return await self.translate_text(src_text, glossary=glossary)
 
@@ -882,6 +1016,7 @@ class TranslationLLMClient:
             target_lang=self.config.target_lang,
             custom_prompt=extra_prompt,
             glossary=matched_glossary,
+            book_brief=self.book_brief,
             is_batch=False,
         )
         user_prompt = (
@@ -944,7 +1079,11 @@ class TranslationLLMClient:
             return [r if r is not None else "" for r in results]
 
         combined_src = "\n\n".join(uncached_texts)
-        matched_glossary = filter_glossary_for_text(combined_src, glossary)
+        merged_glossary = self._merged_glossary(glossary)
+        matched_glossary = filter_glossary_for_text(combined_src, merged_glossary)
+        term_candidates = (
+            self._term_candidates(combined_src, glossary) if provider != "google_free" else []
+        )
         batch_user_prompt = build_batch_user_prompt(uncached_texts)
 
         parsed_segments: Optional[List[str]] = None
@@ -974,7 +1113,9 @@ class TranslationLLMClient:
                         custom_prompt=effective_prompt,
                         glossary=matched_glossary,
                         context=context,
+                        book_brief=self.book_brief,
                         is_batch=True,
+                        term_candidates=term_candidates,
                     )
                     raw_translated = await self._call_llm_with_rotation(
                         sys_prompt, batch_user_prompt, model_override=tr_model_override
@@ -982,6 +1123,9 @@ class TranslationLLMClient:
                     parsed_segments = self._parse_batch_response(
                         raw_translated, len(uncached_texts)
                     )
+                    if parsed_segments and term_candidates:
+                        _body, reported = split_terms_section(raw_translated)
+                        self._learn_from_terms(reported, combined_src, glossary)
                     if parsed_segments and len(parsed_segments) == len(uncached_texts):
                         await self._emit_agent_event(
                             agent_id=3,
@@ -1005,22 +1149,29 @@ class TranslationLLMClient:
             cache_pairs: List[tuple[str, str]] = []
             for idx_in_batch, orig_idx in enumerate(uncached_indices):
                 seg_dst = parsed_segments[idx_in_batch]
+                if matched_glossary and not self.config.enable_editor_agent:
+                    self._warn_missing_dst(uncached_texts[idx_in_batch], seg_dst, matched_glossary)
                 results[orig_idx] = seg_dst
                 cache_pairs.append((uncached_texts[idx_in_batch], seg_dst))
             self.cache.set_many(cache_pairs, target_lang, provider, cache_model_key)
         else:
-            # Automatic 100% alignment fallback: translate each uncached item concurrently
+            # Marker lệch / output bị cắt: chia đôi batch rồi dịch lại (ít lượt gọi hơn nhiều so với từng đoạn)
             logger.info(
-                "Batch marker count mismatch or error for %d segments; translating concurrently.",
+                "Batch marker mismatch or error for %d segments; splitting in half.",
                 len(uncached_texts),
             )
-            single_tasks = [
-                self.translate_text(t, context=context, glossary=glossary)
-                for t in uncached_texts
-            ]
-            single_outputs = await asyncio.gather(*single_tasks)
+            mid = len(uncached_texts) // 2
+            halves = [uncached_texts[:mid], uncached_texts[mid:]]
+            half_outputs = await asyncio.gather(
+                *[
+                    self.translate_batch(h, context=context, glossary=glossary)
+                    for h in halves
+                    if h
+                ]
+            )
+            flat_outputs = [x for part in half_outputs for x in part]
             for idx_in_batch, orig_idx in enumerate(uncached_indices):
-                results[orig_idx] = single_outputs[idx_in_batch]
+                results[orig_idx] = flat_outputs[idx_in_batch]
 
         return [r if r is not None else "" for r in results]
 
@@ -1090,6 +1241,57 @@ class TranslationLLMClient:
             logger.debug("Heuristic glossary translation skipped: %s", exc)
 
         return normalize_glossary(candidates)[:max_terms]
+
+    async def extract_book_profile(
+        self, sample_text: str, max_terms: int = 40
+    ) -> Dict[str, Any]:
+        """
+        Agent 2 (bản nâng cấp): phân tích sách 1 lần -> BOOK BRIEF (thể loại, giọng văn, xưng hô,
+        quy tắc văn phong) + glossary. Nhờ vậy không cần tự viết prompt cho từng cuốn sách.
+        Trả về {"brief": str, "glossary": [...], "profile": dict}. Lỗi -> brief rỗng, glossary dự phòng.
+        """
+        empty: Dict[str, Any] = {"brief": "", "glossary": [], "profile": {}}
+        if not sample_text or not sample_text.strip():
+            return empty
+
+        gl_override = self.config.agent_glossary_model or None
+        if self._effective_provider(model_override=gl_override) == "google_free":
+            return {**empty, "glossary": await self.extract_glossary(sample_text, max_terms)}
+
+        try:
+            sys_prompt = (
+                "Bạn là tổng biên tập nhà xuất bản, phân tích sách để lập hồ sơ dịch thuật. "
+                "Chỉ trả về một JSON object hợp lệ."
+            )
+            user_prompt = build_book_profile_prompt(
+                sample_text, self.config.target_lang, max_terms
+            )
+            async with self.semaphore:
+                raw = await self._call_llm_with_rotation(
+                    sys_prompt, user_prompt, model_override=gl_override
+                )
+            start, end = raw.find("{"), raw.rfind("}")
+            profile = json.loads(raw[start : end + 1]) if start != -1 and end > start else {}
+            if not isinstance(profile, dict):
+                profile = {}
+            glossary = normalize_glossary(profile.get("glossary"))[:max_terms]
+            brief = format_book_brief(profile)
+            if brief or glossary:
+                await self._emit_agent_event(
+                    agent_id=2,
+                    agent_name="Agent 2 · Kỹ Sư Thuật Ngữ",
+                    action="book_profile",
+                    detail=(
+                        f"Đã lập BOOK BRIEF ({profile.get('genre') or 'chưa rõ thể loại'}) "
+                        f"& {len(glossary)} thuật ngữ"
+                    ),
+                    model=self._effective_model(model_override=gl_override),
+                )
+                return {"brief": brief, "glossary": glossary, "profile": profile}
+        except Exception as exc:
+            logger.warning("Book profile extraction failed (%s); falling back to glossary only.", exc)
+
+        return {**empty, "glossary": await self.extract_glossary(sample_text, max_terms)}
 
     async def test_connection(self) -> Dict[str, Any]:
         """
@@ -1205,7 +1407,7 @@ class TranslationLLMClient:
 
         # 2. Try live discovery from Gemini API if gemini_api_keys provided
         gm_keys = self.config.gemini_api_keys or [
-            k for k in self.config.api_keys if k.startswith("AIza")
+            k for k in self.config.api_keys if _is_google_key(k)
         ]
         if gm_keys:
             gm_key = gm_keys[0]
@@ -1214,8 +1416,8 @@ class TranslationLLMClient:
             ).rstrip("/")
             try:
                 async with httpx.AsyncClient(timeout=8.0) as client:
-                    if gm_key.startswith("AIza") and "googleapis.com" in gm_base:
-                        r = await client.get(f"{gm_base}/models?key={gm_key}")
+                    if _is_google_key(gm_key) and "googleapis.com" in gm_base:
+                        r = await client.get(f"{gm_base}/models", headers={"x-goog-api-key": gm_key})
                         if r.status_code == 200:
                             models_list = r.json().get("models") or []
                             for m in models_list:

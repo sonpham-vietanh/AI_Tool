@@ -174,7 +174,7 @@ def _normalize_query_variants(raw_query: str) -> list[str]:
 
     # Nếu tiêu đề có dấu ':' hoặc ' - ' (phụ đề dài), lấy tiêu đề chính + tác giả làm truy vấn ngắn chuẩn nhất
     if ":" in title_part or " - " in title_part:
-        main_title = re.split(r"[:\-–—]", title_part, maxsplit=1)[0].strip()
+        main_title = re.split(r"\s*:\s*|\s+[-–—]\s+", title_part, maxsplit=1)[0].strip()
         if len(main_title) >= 3:
             short_q = f"{main_title} {author_part}".strip()
             short_q = re.sub(r"[:?!\"'()\[\]{}]+", " ", short_q)
@@ -1199,7 +1199,13 @@ async def search_books(query: str, limit: int = 35) -> list[BookSearchResult]:
 
     timeout_cfg = httpx.Timeout(10.0, connect=4.5)
     async with httpx.AsyncClient(headers=DEFAULT_HEADERS, timeout=timeout_cfg, verify=False, follow_redirects=True) as client:
-        expanded = await _expand_bilingual_queries(query, client)
+        try:
+            expanded = await asyncio.wait_for(_expand_bilingual_queries(query, client), timeout=5.0)
+        except Exception as exc:
+            logger.debug("Query expansion failed: %s", exc)
+            expanded = []
+        if not expanded:
+            expanded = [query]
         primary_or_en = expanded[-1]  # Nếu câu gốc là tiếng Việt thì expanded[-1] là tên tiếng Anh
 
         provider_coroutines = [
@@ -1218,13 +1224,16 @@ async def search_books(query: str, limit: int = 35) -> list[BookSearchResult]:
         elif isinstance(res, Exception):
             logger.debug("Provider exception during search_books: %s", res)
 
+    scorable: list[BookSearchResult] = []
     for r in all_results:
-        best = r.priority_score
-        for eq in expanded:
-            r.ensure_score(eq)
-            if r.priority_score > best:
-                best = r.priority_score
-        r.priority_score = best
+        if not isinstance(r, BookSearchResult) or not r.download_url:
+            continue
+        try:
+            r.ensure_score(list(expanded) + [query])
+            scorable.append(r)
+        except Exception as exc:  # một kết quả lỗi không được làm hỏng cả lượt tìm
+            logger.debug("Scoring failed for %r: %s", getattr(r, "title", "?"), exc)
+    all_results = scorable
 
     unique_results = _deduplicate_results(all_results)
     unique_results.sort(
@@ -1235,4 +1244,17 @@ async def search_books(query: str, limit: int = 35) -> list[BookSearchResult]:
         ),
         reverse=True,
     )
-    return unique_results[:limit]
+    # Giới hạn hợp lý: tối đa 15 kết quả/nguồn để một nguồn ồn ào không chiếm hết danh sách
+    per_source: dict[str, int] = {}
+    capped: list[BookSearchResult] = []
+    for r in unique_results:
+        n = per_source.get(r.source, 0)
+        if n >= 15:
+            continue
+        per_source[r.source] = n + 1
+        capped.append(r)
+    try:
+        limit = max(1, min(int(limit), 100))
+    except (TypeError, ValueError):
+        limit = 35
+    return capped[:limit]

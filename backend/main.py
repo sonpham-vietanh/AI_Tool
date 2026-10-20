@@ -11,12 +11,13 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
+from . import jobs_store
 from .llm import LLMConfig, TranslationLLMClient, default_cache
 from .search import (
     BookSearchResult,
@@ -26,7 +27,7 @@ from .search import (
 )
 from .translators import (
     convert_to_docx,
-    extract_book_sample_text,
+    extract_book_spread_sample,
     translate_docx_file,
     translate_epub_file,
     translate_pdf_file,
@@ -47,6 +48,7 @@ DOWNLOADS_DIR = STORAGE_DIR / "downloads"
 OUTPUTS_DIR = STORAGE_DIR / "outputs"
 FONTS_DIR = STORAGE_DIR / "fonts"
 SETTINGS_FILE = STORAGE_DIR / "settings.json"
+MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 
 for d in (STORAGE_DIR, DOWNLOADS_DIR, OUTPUTS_DIR, FONTS_DIR):
     d.mkdir(parents=True, exist_ok=True)
@@ -63,7 +65,7 @@ def _load_saved_settings() -> LLMConfig:
             logger.warning("Could not load settings.json: %s", exc)
     return LLMConfig(
         provider="openai",
-        base_url=os.environ.get("BTH_BASE_URL", "https://ryg2i56.abc-tunnel.us/v1"),
+        base_url=os.environ.get("BTH_BASE_URL", "https://api.openai.com/v1"),
         api_keys=[os.environ["BTH_API_KEY"]] if os.environ.get("BTH_API_KEY") else [],
         model="cc/claude-sonnet-5-5",
         concurrency=12,
@@ -91,6 +93,80 @@ JOB_CANCEL_EVENTS: Dict[str, asyncio.Event] = {}
 JOB_GLOSSARY_EVENTS: Dict[str, asyncio.Event] = {}
 JOB_TASKS: Dict[str, asyncio.Task] = {}
 
+# ---------------------------------------------------------------------------
+# Job persistence (SQLite) — survives restarts / uvicorn --reload
+# ---------------------------------------------------------------------------
+TERMINAL_STATUSES = ("completed", "failed", "cancelled")
+FINISHED_STATUSES = TERMINAL_STATUSES + ("interrupted",)
+PERSIST_MIN_INTERVAL = 2.0
+MAX_LISTED_JOBS = 100
+_JOB_LAST_SAVE: Dict[str, float] = {}
+_JOB_LAST_STATUS: Dict[str, str] = {}
+
+
+def _slim_job_for_storage(job: Dict[str, Any]) -> Dict[str, Any]:
+    slim = dict(job)
+    slim["previews"] = list(job.get("previews") or [])[-30:]
+    slim["agent_logs"] = list(job.get("agent_logs") or [])[-40:]
+    cfg = job.get("config_dump")
+    if isinstance(cfg, dict):
+        cfg = dict(cfg)
+        for secret in ("api_keys", "gemini_api_keys"):
+            if secret in cfg:
+                cfg[secret] = []
+        slim["config_dump"] = cfg
+    return slim
+
+
+def _persist_job(job: Dict[str, Any], force: bool = False) -> None:
+    """Save a job; throttled to once per PERSIST_MIN_INTERVAL unless status changed/forced."""
+    job_id = job.get("id")
+    if not job_id:
+        return
+    now = time.time()
+    status = job.get("status")
+    changed = _JOB_LAST_STATUS.get(job_id) != status
+    if not (force or changed or now - _JOB_LAST_SAVE.get(job_id, 0.0) >= PERSIST_MIN_INTERVAL):
+        return
+    try:
+        jobs_store.save_job(_slim_job_for_storage(job))
+        _JOB_LAST_SAVE[job_id] = now
+        _JOB_LAST_STATUS[job_id] = status
+    except Exception as exc:  # never break the pipeline because of persistence
+        logger.warning("Could not persist job %s: %s", job_id, exc)
+
+
+def _restore_jobs_from_store() -> None:
+    try:
+        stored = jobs_store.load_all_jobs()
+    except Exception as exc:
+        logger.warning("Could not load persisted jobs: %s", exc)
+        return
+    for job in stored:
+        job_id = job["id"]
+        if job.get("status") not in TERMINAL_STATUSES and job.get("status") != "interrupted":
+            job["status"] = "interrupted"
+            job["finished_at"] = time.time()
+            job["message"] = (
+                "Máy chủ đã khởi động lại khi tiến trình đang chạy. "
+                "Bấm 'Tiếp tục' (resume) để chạy tiếp — các đoạn đã dịch được lấy từ bộ nhớ đệm."
+            )
+            try:
+                jobs_store.save_job(job)
+            except Exception:
+                pass
+        JOBS[job_id] = job
+        _JOB_LAST_STATUS[job_id] = job["status"]
+
+
+async def _job_persister_loop() -> None:
+    while True:
+        await asyncio.sleep(1.0)
+        for job in list(JOBS.values()):
+            if job.get("status") in TERMINAL_STATUSES and _JOB_LAST_STATUS.get(job["id"]) == job["status"]:
+                continue
+            _persist_job(job)
+
 LANG_LABELS = {
     "vi": "Tiếng Việt",
     "en": "English",
@@ -109,9 +185,62 @@ def _sanitize_slug(name: str, max_len: int = 80) -> str:
     return (cleaned or "book")[:max_len]
 
 
+MASK_PREFIX = "••••"
+
+
+def _mask_key(key: str) -> str:
+    return f"{MASK_PREFIX}{key[-4:]}" if key else key
+
+
+def _mask_settings(data: Dict[str, Any]) -> Dict[str, Any]:
+    for field in ("api_keys", "gemini_api_keys"):
+        data[field] = [_mask_key(k) for k in data.get(field) or []]
+    return data
+
+
+def _unmask_keys(incoming: Any, existing: List[str]) -> Any:
+    """Thay các key đã che (••••abcd) bằng key thật đang lưu trên server."""
+    if isinstance(incoming, str):
+        incoming = [p for p in re.split(r"[,;\r\n]+", incoming) if p.strip()]
+    if not isinstance(incoming, list):
+        return incoming
+    out: List[str] = []
+    for item in incoming:
+        item = str(item).strip()
+        if item.startswith(MASK_PREFIX):
+            tail = item[len(MASK_PREFIX):]
+            match = next((k for k in existing if k.endswith(tail)), None)
+            if match:
+                out.append(match)
+        elif item:
+            out.append(item)
+    return out
+
+
+def _public_config_dump(cfg: LLMConfig) -> Dict[str, Any]:
+    """config_dump lưu trong job: KHÔNG chứa API key (key lấy từ cài đặt toàn cục khi cần)."""
+    data = cfg.model_dump()
+    data["api_keys"] = []
+    data["gemini_api_keys"] = []
+    return data
+
+
+def _cfg_from_job(job: Dict[str, Any], **updates: Any) -> LLMConfig:
+    data = dict(job.get("config_dump") or GLOBAL_SETTINGS.model_dump())
+    for field in ("api_keys", "gemini_api_keys"):
+        if not data.get(field):
+            data[field] = list(getattr(GLOBAL_SETTINGS, field))
+    data.update(updates)
+    return LLMConfig(**data)
+
+
 def _merge_job_config(override: Optional[Dict[str, Any]]) -> LLMConfig:
     base_dict = GLOBAL_SETTINGS.model_dump()
     if override and isinstance(override, dict):
+        override = dict(override)
+        for field in ("api_keys", "gemini_api_keys"):
+            if field in override:
+                override[field] = _unmask_keys(override[field], base_dict.get(field) or [])
         for k, v in override.items():
             if v is not None and k in base_dict:
                 base_dict[k] = v
@@ -131,7 +260,14 @@ def _merge_job_config(override: Optional[Dict[str, Any]]) -> LLMConfig:
             )
     if base_dict.get("provider") == "gtx":
         base_dict["provider"] = "google_free"
-    return LLMConfig(**base_dict)
+    try:
+        return LLMConfig(**base_dict)
+    except ValidationError as exc:
+        first = exc.errors()[0] if exc.errors() else {}
+        loc = ".".join(str(x) for x in first.get("loc", ()))
+        raise HTTPException(
+            status_code=422, detail=f"Cấu hình không hợp lệ ({loc}): {first.get('msg', exc)}"
+        )
 
 
 def _append_agent_log(
@@ -198,13 +334,14 @@ def _create_job_record(
         "page_range": config.page_range,
         "pause_for_glossary": config.pause_for_glossary,
         "input_file_path": None,
-        "config_dump": config.model_dump(),
+        "config_dump": _public_config_dump(config),
         "glossary": list(config.custom_glossary or []),
         "previews": [],  # list of {"src": ..., "draft": ..., "dst": ..., "was_edited": ..., "ts": ...}
         "agent_logs": [],
         "outputs": {},  # {"primary": "/api/download/...", "bilingual": "...", "docx": "..."}
         "output_files": {},  # filename labels
         "book_meta": None,
+        "brief": "",
         "created_at": now,
         "started_at": now,
         "finished_at": None,
@@ -213,6 +350,7 @@ def _create_job_record(
     JOBS[job_id] = job
     JOB_CANCEL_EVENTS[job_id] = asyncio.Event()
     JOB_GLOSSARY_EVENTS[job_id] = asyncio.Event()
+    _persist_job(job, force=True)
     return job
 
 
@@ -377,12 +515,14 @@ async def _execute_translation_pipeline(
             job["message"] = "[Agent 2 · Terminologist] Đang đọc mẫu sách & lập Bảng từ điển thuật ngữ chuẩn hóa..."
             try:
                 sample_text = await asyncio.to_thread(
-                    extract_book_sample_text, str(input_path_obj), 12000
+                    extract_book_spread_sample, str(input_path_obj), 15000
                 )
                 if sample_text and len(sample_text.strip()) > 80:
-                    extracted_terms = await llm_client.extract_glossary(
-                        sample_text, max_terms=30
-                    )
+                    profile = await llm_client.extract_book_profile(sample_text, max_terms=40)
+                    extracted_terms = profile["glossary"]
+                    if profile["brief"]:
+                        llm_client.book_brief = profile["brief"]
+                        job["brief"] = profile["brief"]
                     existing_srcs = {
                         str(g.get("src", "")).strip().lower() for g in glossary_list if g.get("src")
                     }
@@ -399,6 +539,7 @@ async def _execute_translation_pipeline(
                 logger.warning("Glossary extraction skipped for job %s: %s", job_id, g_exc)
         else:
             job["glossary"] = glossary_list
+            llm_client.book_brief = str(job.get("brief") or "")
             _append_agent_log(
                 job,
                 2,
@@ -453,6 +594,7 @@ async def _execute_translation_pipeline(
             latest_dst: str = "",
         ) -> None:
             job["done_chunks"] = int(done_items)
+            job["learned_terms"] = list(getattr(llm_client, "learned_terms", []) or [])[:200]
             job["total_chunks"] = int(total_items)
             if total_items > 0:
                 ratio = min(1.0, max(0.0, done_items / total_items))
@@ -741,12 +883,26 @@ async def _execute_translation_pipeline(
             "Completed",
         )
 
+    except asyncio.CancelledError:
+        if cancel_event.is_set() or job.get("status") == "cancelled":
+            job["status"] = "cancelled"
+        else:
+            # Server shutdown / reload killed the task: keep it resumable.
+            job["status"] = "interrupted"
+            job["message"] = (
+                "Tiến trình bị gián đoạn do máy chủ dừng/khởi động lại. "
+                "Bấm 'Tiếp tục' (resume) để chạy tiếp."
+            )
+        job["finished_at"] = time.time()
+        raise
     except Exception as exc:
         logger.exception("Job %s failed: %s", job_id, exc)
         job["status"] = "failed"
         job["error"] = str(exc)
         job["message"] = f"Lỗi: {exc}"
         job["finished_at"] = time.time()
+    finally:
+        _persist_job(job, force=True)
 
 
 # ============================================================================
@@ -759,13 +915,52 @@ app = FastAPI(
     description="1-Click Book Search, Auto-Download & Multi-Agent/Multi-Thread AI Book Translation Hub",
 )
 
+_restore_jobs_from_store()
+
+
+@app.on_event("startup")
+async def _start_job_persister() -> None:
+    app.state.job_persister = asyncio.create_task(_job_persister_loop())
+
+
+@app.on_event("shutdown")
+async def _flush_jobs_on_shutdown() -> None:
+    task = getattr(app.state, "job_persister", None)
+    if task:
+        task.cancel()
+    for t in list(JOB_TASKS.values()):
+        if not t.done():
+            t.cancel()
+    # Let cancelled pipelines mark themselves 'interrupted' and persist.
+    pending = [t for t in JOB_TASKS.values()]
+    if pending:
+        await asyncio.gather(*pending, return_exceptions=True)
+    for job in list(JOBS.values()):
+        _persist_job(job, force=True)
+
+
+ALLOWED_ORIGIN_RE = r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$"
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origin_regex=ALLOWED_ORIGIN_RE,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def block_foreign_origins(request: Request, call_next):
+    """Chặn trang web lạ (CSRF / DNS rebinding) gọi API ghi từ trình duyệt của người dùng."""
+    if request.method not in ("GET", "HEAD", "OPTIONS") or request.url.path == "/api/settings":
+        origin = request.headers.get("origin")
+        if origin and not re.match(ALLOWED_ORIGIN_RE, origin):
+            return JSONResponse({"detail": "Origin không được phép."}, status_code=403)
+    host = (request.headers.get("host") or "").split(":")[0].strip("[]")
+    if host not in ("localhost", "127.0.0.1", "::1") and not os.environ.get("BTH_ALLOW_REMOTE"):
+        return JSONResponse({"detail": "Host không được phép."}, status_code=403)
+    return await call_next(request)
 
 
 class AutoJobRequest(BaseModel):
@@ -796,7 +991,7 @@ async def api_health() -> Dict[str, Any]:
 
 @app.get("/api/settings")
 async def api_get_settings() -> Dict[str, Any]:
-    data = GLOBAL_SETTINGS.model_dump()
+    data = _mask_settings(GLOBAL_SETTINGS.model_dump())
     # Provide UI friendly alias as well
     data["ui_provider"] = "gtx" if data["provider"] == "google_free" else data["provider"]
     data["cache_stats"] = default_cache.get_stats()
@@ -809,7 +1004,7 @@ async def api_save_settings(payload: Dict[str, Any]) -> Dict[str, Any]:
     merged = _merge_job_config(payload)
     GLOBAL_SETTINGS = merged
     _save_settings(GLOBAL_SETTINGS)
-    data = GLOBAL_SETTINGS.model_dump()
+    data = _mask_settings(GLOBAL_SETTINGS.model_dump())
     data["ui_provider"] = "gtx" if data["provider"] == "google_free" else data["provider"]
     return {
         "ok": True,
@@ -933,8 +1128,17 @@ async def api_start_upload_job(
 
     safe_name = f"{_sanitize_slug(Path(file.filename).stem)}_{uuid.uuid4().hex[:6]}.{ext}"
     saved_path = DOWNLOADS_DIR / safe_name
-    with open(saved_path, "wb") as f_out:
-        shutil.copyfileobj(file.file, f_out)
+    written = 0
+    try:
+        with open(saved_path, "wb") as f_out:
+            while chunk := await file.read(1024 * 1024):
+                written += len(chunk)
+                if written > MAX_UPLOAD_BYTES:
+                    raise HTTPException(status_code=413, detail="File vượt quá giới hạn 200MB.")
+                f_out.write(chunk)
+    except HTTPException:
+        saved_path.unlink(missing_ok=True)
+        raise
 
     job = _create_job_record(
         title=Path(file.filename).stem,
@@ -958,7 +1162,7 @@ async def api_start_upload_job(
 async def api_list_jobs() -> Dict[str, Any]:
     sorted_jobs = sorted(
         JOBS.values(), key=lambda x: x.get("created_at", 0), reverse=True
-    )
+    )[:MAX_LISTED_JOBS]
     return {"ok": True, "jobs": sorted_jobs}
 
 
@@ -975,12 +1179,109 @@ async def api_cancel_job(job_id: str) -> Dict[str, Any]:
     job = JOBS.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Không tìm thấy tiến trình dịch này.")
+    if job["status"] in ("completed", "failed", "cancelled", "interrupted"):
+        return {"ok": True, "job": job}
     ev = JOB_CANCEL_EVENTS.get(job_id)
     if ev:
         ev.set()
+    task = JOB_TASKS.get(job_id)
+    if task and not task.done():
+        task.cancel()
     job["status"] = "cancelled"
-    job["message"] = "Đã gửi lệnh dừng tiến trình dịch."
+    job["finished_at"] = time.time()
+    job["message"] = "Đã dừng tiến trình dịch theo yêu cầu."
+    _persist_job(job, force=True)
     return {"ok": True, "job": job}
+
+
+@app.post("/api/jobs/{job_id}/resume")
+async def api_resume_job(job_id: str) -> Dict[str, Any]:
+    job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tiến trình dịch này.")
+    if job["status"] not in ("interrupted", "failed", "cancelled"):
+        raise HTTPException(
+            status_code=409,
+            detail="Chỉ có thể tiếp tục tiến trình bị gián đoạn, thất bại hoặc đã hủy.",
+        )
+    task = JOB_TASKS.get(job_id)
+    if task and not task.done():
+        raise HTTPException(status_code=409, detail="Tiến trình vẫn đang chạy.")
+    input_file_path = job.get("input_file_path")
+    if not input_file_path or not Path(input_file_path).is_file():
+        raise HTTPException(
+            status_code=400,
+            detail="Không tìm thấy file sách gốc (có thể chưa tải xong hoặc đã bị xóa). "
+            "Hãy tạo tiến trình mới.",
+        )
+
+    cfg = _cfg_from_job(job)
+    cfg.pause_for_glossary = False
+    saved_glossary = list(job.get("glossary") or [])
+    if saved_glossary:
+        cfg.auto_glossary = False
+        cfg.custom_glossary = saved_glossary
+
+    JOB_CANCEL_EVENTS[job_id] = asyncio.Event()
+    JOB_GLOSSARY_EVENTS[job_id] = asyncio.Event()
+    now = time.time()
+    job["status"] = "translating"
+    job["stage"] = max(1, min(int(job.get("stage") or 1), 3))
+    job["error"] = None
+    job["finished_at"] = None
+    job["started_at"] = now
+    job["message"] = "[Resume] Đang tiếp tục tiến trình — các đoạn đã dịch sẽ lấy từ bộ nhớ đệm..."
+    _append_agent_log(
+        job,
+        3,
+        "Agent 3 · Dịch Đa Luồng",
+        "Tiếp tục tiến trình từ file gốc đã lưu (đoạn đã dịch lấy từ cache)",
+        "Resume",
+    )
+    _persist_job(job, force=True)
+    JOB_TASKS[job_id] = asyncio.create_task(
+        _execute_translation_pipeline(
+            job_id=job_id,
+            input_file_path=input_file_path,
+            config=cfg,
+        )
+    )
+    return {"ok": True, "job": job}
+
+
+@app.delete("/api/jobs/{job_id}")
+async def api_delete_job(job_id: str) -> Dict[str, Any]:
+    job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tiến trình dịch này.")
+    if job["status"] not in FINISHED_STATUSES:
+        raise HTTPException(status_code=409, detail="Tiến trình đang chạy, hãy hủy trước khi xóa.")
+    task = JOB_TASKS.get(job_id)
+    if task and not task.done():
+        raise HTTPException(status_code=409, detail="Tiến trình vẫn đang chạy.")
+
+    removed_files: List[str] = []
+    outputs_root = OUTPUTS_DIR.resolve()
+    for fname in list((job.get("output_files") or {}).values()):
+        try:
+            target = (OUTPUTS_DIR / str(fname)).resolve()
+            if target.parent == outputs_root and target.is_file():
+                target.unlink()
+                removed_files.append(target.name)
+        except Exception as exc:
+            logger.warning("Could not remove output %s: %s", fname, exc)
+
+    JOBS.pop(job_id, None)
+    JOB_TASKS.pop(job_id, None)
+    JOB_CANCEL_EVENTS.pop(job_id, None)
+    JOB_GLOSSARY_EVENTS.pop(job_id, None)
+    _JOB_LAST_SAVE.pop(job_id, None)
+    _JOB_LAST_STATUS.pop(job_id, None)
+    try:
+        jobs_store.delete_job(job_id)
+    except Exception as exc:
+        logger.warning("Could not delete job %s from store: %s", job_id, exc)
+    return {"ok": True, "deleted": job_id, "removed_files": removed_files}
 
 
 @app.get("/api/download/{filename}")
@@ -1021,7 +1322,7 @@ class QuickTranslateRequest(BaseModel):
 def _store_segment_override_in_cache(
     job: Dict[str, Any], src_text: str, dst_text: str
 ) -> None:
-    cfg = LLMConfig(**(job.get("config_dump") or GLOBAL_SETTINGS.model_dump()))
+    cfg = _cfg_from_job(job)
     client = TranslationLLMClient(config=cfg, cache=default_cache)
     tr_override = cfg.agent_translator_model or None
     provider = client._effective_provider(model_override=tr_override)
@@ -1101,6 +1402,26 @@ async def api_approve_job_glossary(
     return {"ok": True, "job": job}
 
 
+class BriefUpdateRequest(BaseModel):
+    brief: str = ""
+
+
+@app.put("/api/jobs/{job_id}/brief")
+async def api_update_job_brief(job_id: str, req: BriefUpdateRequest) -> Dict[str, Any]:
+    job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tiến trình dịch này.")
+    job["brief"] = (req.brief or "").strip()
+    _append_agent_log(
+        job,
+        2,
+        "Agent 2 · Kỹ Sư Thuật Ngữ",
+        f"Người dùng đã cập nhật BOOK BRIEF ({len(job['brief'])} ký tự) — sẽ áp dụng cho các đoạn dịch/đóng gói tiếp theo.",
+        "Updated",
+    )
+    return {"ok": True, "brief": job["brief"], "job": job}
+
+
 @app.post("/api/jobs/{job_id}/previews/update")
 async def api_update_preview_segment(
     job_id: str, req: PreviewSegmentUpdateRequest
@@ -1146,8 +1467,9 @@ async def api_repolish_preview_segment(
     if not src_clean:
         raise HTTPException(status_code=400, detail="Không tìm thấy đoạn văn gốc.")
 
-    cfg = LLMConfig(**(job.get("config_dump") or GLOBAL_SETTINGS.model_dump()))
+    cfg = _cfg_from_job(job)
     client = TranslationLLMClient(config=cfg, cache=default_cache)
+    client.book_brief = str(job.get("brief") or "")
     polished = await client.polish_single_segment(
         src_text=src_clean,
         draft_text=req.draft or "",
@@ -1184,6 +1506,8 @@ async def api_repackage_job(job_id: str) -> Dict[str, Any]:
     job = JOBS.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Không tìm thấy tiến trình dịch này.")
+    if job["status"] not in ("completed", "failed", "cancelled"):
+        raise HTTPException(status_code=409, detail="Tiến trình đang chạy, chưa thể đóng gói lại.")
     input_file_path = job.get("input_file_path")
     if not input_file_path or not Path(input_file_path).exists():
         raise HTTPException(
@@ -1191,11 +1515,12 @@ async def api_repackage_job(job_id: str) -> Dict[str, Any]:
             detail="Không tìm thấy file sách gốc để đóng gói lại.",
         )
 
-    cfg_dict = dict(job.get("config_dump") or GLOBAL_SETTINGS.model_dump())
-    cfg_dict["pause_for_glossary"] = False
-    cfg_dict["auto_glossary"] = False
-    cfg_dict["custom_glossary"] = list(job.get("glossary") or [])
-    cfg = LLMConfig(**cfg_dict)
+    cfg = _cfg_from_job(
+        job,
+        pause_for_glossary=False,
+        auto_glossary=False,
+        custom_glossary=list(job.get("glossary") or []),
+    )
 
     JOB_CANCEL_EVENTS[job_id] = asyncio.Event()
     job["status"] = "packaging"

@@ -399,8 +399,8 @@ async def translate_pdf_file(
                 pass
 
         # 2. Gom các block thành batch và dịch bất đồng bộ qua llm_client.translate_batch
-        batch_size = getattr(llm_client, "batch_size", 12) or 12
-        batch_size = max(1, min(int(batch_size), 25))
+        batch_size = getattr(getattr(llm_client, "config", None), "batch_items", 12) or 12
+        batch_size = max(1, min(int(batch_size), 30))
 
         for start_idx in range(0, total_items, batch_size):
             if cancel_event and cancel_event.is_set():

@@ -264,7 +264,8 @@ async def translate_txt_file(
         }
 
     batches = _build_smart_batches(
-        translatable_items, max_items_per_batch=10, max_chars_per_batch=1800
+        translatable_items, max_items_per_batch=getattr(getattr(llm_client, "config", None), "batch_items", 10),
+        max_chars_per_batch=getattr(getattr(llm_client, "config", None), "batch_chars", 1800),
     )
 
     batch_contexts: List[str] = []

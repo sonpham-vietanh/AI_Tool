@@ -117,11 +117,171 @@ def _extract_clean_text(tag: Tag) -> str:
     return re.sub(r"\s+", " ", raw).strip()
 
 
-def _replace_tag_text_preserving_style(tag: Tag, translated_text: str, soup: BeautifulSoup) -> None:
+# ---------------------------------------------------------------------------
+# Inline-format placeholders: ⟦1⟧text⟦/1⟧ (cặp), ⟦3/⟧ (thẻ rỗng như <br/>, <img/>, anchor)
+# ---------------------------------------------------------------------------
+_MARK_RE = re.compile(r"⟦\s*(/?)\s*(\d+)\s*(/?)\s*⟧")
+_MAX_INLINE_MARKS = 40
+
+
+def _strip_markers(text: str) -> str:
+    """Xóa mọi marker còn sót (và ký tự ⟦ ⟧ lạc) khỏi văn bản."""
+    text = _MARK_RE.sub("", text or "")
+    text = text.replace("⟦", "").replace("⟧", "")
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _extract_marked_text(tag: Tag) -> Tuple[str, Dict[int, Tuple]]:
     """
-    Thay thế văn bản của thẻ bằng bản dịch nhưng cố gắng giữ nguyên định dạng cơ bản
-    hoặc thẻ inline bao ngoài nếu toàn bộ thẻ được bọc trong 1 thẻ inline duy nhất (vd: <p><strong>Text</strong></p>).
+    Trích text của thẻ lá kèm marker cho các thẻ inline.
+    Trả về (text, marks). Nếu không có thẻ inline hoặc quá nhiều thẻ, trả về text phẳng và marks rỗng.
     """
+    flat = _extract_clean_text(tag)
+    if not any(isinstance(c, Tag) for c in tag.descendants):
+        return flat, {}
+    if sum(1 for c in tag.descendants if isinstance(c, Tag)) > _MAX_INLINE_MARKS:
+        return flat, {}
+
+    marks: Dict[int, Tuple] = {}
+    counter = [0]
+
+    def walk(node: Tag) -> str:
+        out: List[str] = []
+        for c in node.children:
+            if isinstance(c, Tag):
+                counter[0] += 1
+                n = counter[0]
+                if c.name in ("br", "img", "svg", "image", "hr") or not c.get_text(strip=True):
+                    marks[n] = ("void", copy.copy(c))
+                    out.append(f"⟦{n}/⟧")
+                else:
+                    marks[n] = ("pair", c.name, copy.deepcopy(dict(c.attrs)))
+                    out.append(f"⟦{n}⟧{walk(c)}⟦/{n}⟧")
+            elif type(c) is NavigableString:
+                out.append(str(c))
+        return "".join(out)
+
+    try:
+        marked = re.sub(r"\s+", " ", walk(tag)).strip()
+    except Exception:
+        return flat, {}
+    if not marks:
+        return flat, {}
+    return marked, marks
+
+
+def _drop_ids(el: Tag) -> None:
+    for t in [el] + list(el.find_all(True)):
+        for attr in ("id", "name"):
+            if t.has_attr(attr) and (attr == "id" or t.name == "a"):
+                del t[attr]
+
+
+def _rebuild_from_marked(
+    target: Tag, translated: str, marks: Dict[int, Tuple], soup: BeautifulSoup, drop_ids: bool = False
+) -> bool:
+    """
+    Dựng lại nội dung của target từ chuỗi dịch có marker. Trả về False (không đụng tới target)
+    nếu marker thiếu/trùng/sai thứ tự để caller fallback sang chế độ phẳng.
+    """
+    try:
+        root: List[Any] = []
+        stack: List[Tuple[int, List[Any]]] = [(0, root)]
+        seen: set = set()
+        voids_used: set = set()
+        pos = 0
+
+        def add_text(s: str) -> None:
+            if s:
+                stack[-1][1].append(NavigableString(s))
+
+        for m in _MARK_RE.finditer(translated):
+            add_text(translated[pos:m.start()])
+            pos = m.end()
+            is_close = m.group(1) == "/"
+            is_self = m.group(3) == "/"
+            n = int(m.group(2))
+            info = marks.get(n)
+            if info is None or (is_close and is_self):
+                return False
+            if is_self:
+                if info[0] != "void" or n in voids_used:
+                    return False
+                voids_used.add(n)
+                el = copy.copy(info[1])
+                if drop_ids:
+                    _drop_ids(el)
+                stack[-1][1].append(el)
+            elif is_close:
+                if info[0] != "pair" or len(stack) < 2 or stack[-1][0] != n:
+                    return False
+                _, children = stack.pop()
+                el = soup.new_tag(info[1])
+                el.attrs = copy.deepcopy(info[2])
+                if drop_ids:
+                    _drop_ids(el)
+                for ch in children:
+                    el.append(ch)
+                stack[-1][1].append(el)
+            else:
+                if info[0] != "pair" or n in seen:
+                    return False
+                seen.add(n)
+                stack.append((n, []))
+        add_text(translated[pos:])
+        if len(stack) != 1:
+            return False
+        closed_pairs = seen
+        for n, info in marks.items():
+            if info[0] == "pair" and n not in closed_pairs:
+                return False
+
+        # Marker rỗng (anchor/ảnh) bị LLM bỏ: đặt lại ở đầu thẻ như chế độ phẳng
+        missing = []
+        for n, info in marks.items():
+            if info[0] == "void" and n not in voids_used:
+                el = copy.copy(info[1])
+                if drop_ids:
+                    _drop_ids(el)
+                missing.append(el)
+
+        final_nodes = missing + root
+        # Dọn ký tự marker lạc trong text
+        for node in final_nodes:
+            _scrub_strings(node)
+        target.clear()
+        for node in final_nodes:
+            target.append(node)
+        return True
+    except Exception as e:
+        logger.debug(f"Rebuild inline markers thất bại, fallback phẳng: {e}")
+        return False
+
+
+def _scrub_strings(node: Any) -> None:
+    if isinstance(node, Tag):
+        for s in list(node.find_all(string=True)):
+            if type(s) is NavigableString and ("⟦" in s or "⟧" in s):
+                s.replace_with(NavigableString(s.replace("⟦", "").replace("⟧", "")))
+    elif type(node) is NavigableString and ("⟦" in node or "⟧" in node):
+        node.replace_with(NavigableString(node.replace("⟦", "").replace("⟧", "")))
+
+
+def _replace_tag_text_preserving_style(
+    tag: Tag,
+    translated_text: str,
+    soup: BeautifulSoup,
+    marks: Optional[Dict[int, Tuple]] = None,
+    drop_ids: bool = False,
+) -> None:
+    """
+    Thay thế văn bản của thẻ bằng bản dịch. Nếu có marks và bản dịch giữ đúng marker thì dựng lại
+    thẻ inline (link, em, strong, sup...). Ngược lại fallback sang chế độ phẳng:
+    giữ thẻ inline bao ngoài duy nhất (vd: <p><strong>Text</strong></p>).
+    """
+    if marks and _rebuild_from_marked(tag, translated_text, marks, soup, drop_ids):
+        return
+    translated_text = _strip_markers(translated_text) or translated_text
     # Kiểm tra nếu có ảnh hoặc thẻ đặc biệt bên trong (như <img/>, <svg/>, <a id="..."/> rỗng dùng làm anchor)
     preserved_elements = []
     for child in list(tag.children):
@@ -160,7 +320,9 @@ def _replace_tag_text_preserving_style(tag: Tag, translated_text: str, soup: Bea
         tag.append(NavigableString(translated_text))
 
 
-def _apply_bilingual_to_tag(tag: Tag, translated_text: str, soup: BeautifulSoup) -> None:
+def _apply_bilingual_to_tag(
+    tag: Tag, translated_text: str, soup: BeautifulSoup, marks: Optional[Dict[int, Tuple]] = None
+) -> None:
     """
     Chế độ song ngữ (Bilingual):
     Giữ nguyên thẻ gốc (thêm style làm dịu nhẹ để dễ phân biệt)
@@ -177,7 +339,8 @@ def _apply_bilingual_to_tag(tag: Tag, translated_text: str, soup: BeautifulSoup)
         trans_wrapper = soup.new_tag("div")
         trans_wrapper["class"] = ["bth-bilingual-dst"]
         trans_wrapper["style"] = "font-weight: inherit; margin-top: 2px;"
-        trans_wrapper.string = translated_text
+        if not (marks and _rebuild_from_marked(trans_wrapper, translated_text, marks, soup, drop_ids=True)):
+            trans_wrapper.string = _strip_markers(translated_text) or translated_text
 
         tag.clear()
         tag.append(orig_wrapper)
@@ -203,7 +366,7 @@ def _apply_bilingual_to_tag(tag: Tag, translated_text: str, soup: BeautifulSoup)
     tag["class"] = existing_classes
 
     # Cập nhật nội dung thẻ dịch
-    _replace_tag_text_preserving_style(trans_tag, translated_text, soup)
+    _replace_tag_text_preserving_style(trans_tag, translated_text, soup, marks=marks, drop_ids=True)
     trans_classes = list(trans_tag.get("class") or [])
     if "bth-bilingual-dst" not in trans_classes:
         trans_classes.append("bth-bilingual-dst")
@@ -426,14 +589,16 @@ async def translate_epub_file(
             body = soup.find("body") or soup
             for tag in body.find_all(TARGET_TAGS):
                 if _is_leaf_block_tag(tag):
-                    src_text = _extract_clean_text(tag)
-                    if _is_translatable_text(src_text):
+                    flat_text = _extract_clean_text(tag)
+                    if _is_translatable_text(flat_text):
+                        src_text, marks = _extract_marked_text(tag)
                         translatable_items.append(
                             {
                                 "file_name": file_name,
                                 "tag": tag,
                                 "soup": soup,
                                 "src_text": src_text,
+                                "marks": marks,
                                 "dst_text": None,
                             }
                         )
@@ -496,7 +661,8 @@ async def translate_epub_file(
 
     # 2. Chia thành các Batch thông minh (~8-12 đoạn hoặc ~1800 ký tự)
     batches = _build_smart_batches(
-        translatable_items, max_items_per_batch=10, max_chars_per_batch=1800
+        translatable_items, max_items_per_batch=getattr(getattr(llm_client, "config", None), "batch_items", 10),
+        max_chars_per_batch=getattr(getattr(llm_client, "config", None), "batch_chars", 1800),
     )
 
     # Chuẩn bị context (đoạn văn trước của mỗi batch)
@@ -552,8 +718,8 @@ async def translate_epub_file(
             for item, dst_text in zip(batch, translated_texts):
                 final_dst = dst_text.strip() if dst_text else item["src_text"]
                 item["dst_text"] = final_dst
-                latest_src = item["src_text"]
-                latest_dst = final_dst
+                latest_src = _strip_markers(item["src_text"])
+                latest_dst = _strip_markers(final_dst)
 
             async with progress_lock:
                 done_items += len(batch)
@@ -584,9 +750,9 @@ async def translate_epub_file(
         tag = item["tag"]
         soup = item["soup"]
         if bilingual:
-            _apply_bilingual_to_tag(tag, dst_text, soup)
+            _apply_bilingual_to_tag(tag, dst_text, soup, marks=item.get("marks"))
         else:
-            _replace_tag_text_preserving_style(tag, dst_text, soup)
+            _replace_tag_text_preserving_style(tag, dst_text, soup, marks=item.get("marks"))
 
     # 5. Đóng gói lại file EPUB đích an toàn tuyệt đối (giữ chuẩn mimetype đầu tiên không nén)
     temp_fd, temp_epub_path = tempfile.mkstemp(suffix=".epub")

@@ -78,13 +78,11 @@ class TranslationCache:
             if row:
                 return row[0]
 
-            # Fallback: Check if translated by any model under the same target_lang and src_text
-            cursor.execute(
-                "SELECT dst_text FROM cache WHERE src_text = ? AND target_lang = ? ORDER BY created_at DESC LIMIT 1",
-                (src_text.strip(), target_lang.strip()),
-            )
-            row_any = cursor.fetchone()
-            return row_any[0] if row_any else None
+            # Chỉ cho phép dùng lại bản sửa tay của người dùng (không dùng bản dịch của model/provider khác)
+            override_key = self.make_hash(src_text, target_lang, "manual_override", "editor_override")
+            cursor.execute("SELECT dst_text FROM cache WHERE hash_key = ?", (override_key,))
+            row_override = cursor.fetchone()
+            return row_override[0] if row_override else None
 
     def set(
         self,

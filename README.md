@@ -24,7 +24,7 @@ start_hub.bat
 Hoặc chạy trực tiếp bằng Uvicorn:
 
 ```bash
-python -m uvicorn backend.main:app --host 0.0.0.0 --port 8088 --reload
+python -m uvicorn backend.main:app --host 127.0.0.1 --port 8088 --reload
 ```
 
 Sau đó truy cập: **http://localhost:8088**

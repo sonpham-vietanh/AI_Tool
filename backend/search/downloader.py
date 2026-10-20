@@ -1,17 +1,22 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
+import ipaddress
 import logging
 import os
 import re
+import socket
+import time
+import uuid
 from pathlib import Path
 from typing import Callable, Optional
-from urllib.parse import quote, urljoin
+from urllib.parse import quote, urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
 
-from .models import BookSearchResult
+from .models import BookSearchResult, score_candidate
 from .providers import DEFAULT_HEADERS, search_books
 
 logger = logging.getLogger(__name__)
@@ -32,6 +37,25 @@ INTERMEDIATE_HOST_PATTERNS = (
     "annas-archive.li/md5/",
     "annas-archive.gs/md5/",
 )
+
+
+def _check_public_url_sync(url: str) -> None:
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise ValueError(f"URL không hợp lệ: {url}")
+    try:
+        infos = socket.getaddrinfo(parsed.hostname, parsed.port or 443)
+    except socket.gaierror as exc:
+        raise ValueError(f"Không phân giải được host {parsed.hostname}: {exc}")
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if not ip.is_global:
+            raise ValueError(f"Chặn URL trỏ tới địa chỉ nội bộ/không công khai: {parsed.hostname}")
+
+
+async def _block_private_hosts(request: httpx.Request) -> None:
+    """Event hook chạy cho cả mỗi lần redirect -> chống SSRF."""
+    await asyncio.to_thread(_check_public_url_sync, str(request.url))
 
 
 def _is_intermediate_url(url: str) -> bool:
@@ -59,6 +83,23 @@ def _normalize_special_url(url: str) -> str:
             return f"https://drive.google.com/uc?export=download&id={fid}"
 
     return u
+
+
+def _cleanup_stale_temp_files(directory: Path, max_age_seconds: float = 3600.0) -> int:
+    """Xoá các file tạm `.tmp_*.bin` bị bỏ lại (job crash/huỷ) cũ hơn max_age_seconds."""
+    removed = 0
+    now = time.time()
+    try:
+        for f in Path(directory).glob(".tmp_*.bin"):
+            try:
+                if now - f.stat().st_mtime > max_age_seconds:
+                    f.unlink()
+                    removed += 1
+            except OSError:
+                continue
+    except OSError:
+        pass
+    return removed
 
 
 def _sanitize_filename(name: str, max_len: int = 120) -> str:
@@ -307,10 +348,15 @@ async def download_book(
         else result.title
     )
 
+    _cleanup_stale_temp_files(dest_path_obj)
+
     timeout_cfg = httpx.Timeout(35.0, connect=10.0, read=28.0)
     last_error: Optional[Exception] = None
 
-    async with httpx.AsyncClient(headers=DEFAULT_HEADERS, timeout=timeout_cfg, verify=False, follow_redirects=True) as client:
+    async with httpx.AsyncClient(
+        headers=DEFAULT_HEADERS, timeout=timeout_cfg, follow_redirects=True,
+        event_hooks={"request": [_block_private_hosts]},
+    ) as client:
         await _notify_progress(
             progress_cb,
             {"stage": "resolving", "title": result.title, "source": result.source},
@@ -324,7 +370,7 @@ async def download_book(
         while idx < len(direct_urls) and idx < 16:
             url = direct_urls[idx]
             idx += 1
-            temp_file = dest_path_obj / f".tmp_{safe_title}_{os.getpid()}_{idx}.bin"
+            temp_file = dest_path_obj / f".tmp_{safe_title[:60]}_{uuid.uuid4().hex[:12]}_{idx}.bin"
             detected_fmt = initial_fmt
 
             try:
@@ -413,7 +459,8 @@ async def download_book(
                     try:
                         target_file.unlink()
                     except OSError:
-                        pass
+                        # File đang được job khác dùng -> không ghi đè, dùng tên duy nhất
+                        target_file = dest_path_obj / f"{safe_title}_{uuid.uuid4().hex[:8]}.{detected_fmt}"
                 temp_file.replace(target_file)
 
                 await _notify_progress(
@@ -426,6 +473,12 @@ async def download_book(
                 )
                 return str(target_file.resolve())
 
+            except asyncio.CancelledError:
+                try:
+                    temp_file.unlink()
+                except OSError:
+                    pass
+                raise
             except Exception as exc:
                 last_error = exc
                 logger.debug("Download attempt %d failed for %s: %s", idx, url, exc)
@@ -470,42 +523,169 @@ async def download_book(
     )
 
 
+MIN_BOOK_CHARS = 20_000
+MAX_CANDIDATES = 8
+AUTO_TOTAL_TIMEOUT_S = 420.0
+PER_CANDIDATE_TIMEOUT_S = 150.0
+MIN_ACCEPTABLE_SCORE = 30
+
+
+def _read_file_metadata_text(path: str) -> str:
+    """Đọc nhanh metadata (title/creator) của EPUB/DOCX/PDF; lỗi -> chuỗi rỗng."""
+    import zipfile
+
+    ext = os.path.splitext(path)[1].lower()
+    try:
+        if ext == ".epub":
+            with zipfile.ZipFile(path) as zf:
+                for name in zf.namelist():
+                    if name.lower().endswith(".opf"):
+                        raw = zf.read(name).decode("utf-8", errors="ignore")
+                        parts = re.findall(r"<dc:(?:title|creator)[^>]*>(.*?)</dc:(?:title|creator)>", raw, re.S | re.I)
+                        return " ".join(re.sub(r"<[^>]+>", " ", p) for p in parts)
+        elif ext == ".docx":
+            with zipfile.ZipFile(path) as zf:
+                raw = zf.read("docProps/core.xml").decode("utf-8", errors="ignore")
+                parts = re.findall(r"<dc:(?:title|creator)[^>]*>(.*?)</dc:(?:title|creator)>", raw, re.S | re.I)
+                return " ".join(parts)
+        elif ext == ".pdf":
+            import fitz  # PyMuPDF
+
+            with fitz.open(path) as doc:
+                md = doc.metadata or {}
+                return f"{md.get('title') or ''} {md.get('author') or ''}"
+    except Exception:
+        pass
+    return ""
+
+
+def validate_downloaded_book(
+    path: str,
+    query: str = "",
+    title: str = "",
+    author: str = "",
+    min_chars: int = MIN_BOOK_CHARS,
+    target_lang: str = "vi",
+) -> tuple[bool, str]:
+    """
+    Kiểm tra rẻ xem file tải về có đúng là cuốn sách cần dịch không (đồng bộ, chạy trong thread).
+    - mở được và có đủ văn bản (>= min_chars ký tự)
+    - không phải rác OCR (tỷ lệ chữ cái thấp / nhiều ký tự lỗi)
+    - không phải bản đã ở ngôn ngữ đích (vi)
+    - token tiêu đề/tác giả (hoặc từ khóa người dùng) xuất hiện trong metadata hoặc các trang đầu
+    Trả về (ok, lý do).
+    """
+    from .models import _fold, _tokens, _VI_DIACRITICS_RE
+
+    if not os.path.isfile(path):
+        return False, "file không tồn tại"
+    try:
+        from ..translators.converter import extract_book_sample_text  # lazy: tránh import vòng
+    except Exception as exc:  # pragma: no cover
+        logger.debug("Không import được extractor, bỏ qua validate: %s", exc)
+        return True, "skipped (no extractor)"
+
+    try:
+        text = extract_book_sample_text(path, 80_000) or ""
+    except Exception as exc:
+        return False, f"không đọc được file: {exc}"
+
+    stripped = text.strip()
+    if len(stripped) < min_chars:
+        return False, f"quá ít văn bản ({len(stripped)} < {min_chars} ký tự; có thể là bản scan/sample)"
+
+    sample = stripped[:40_000]
+    letters = sum(1 for c in sample if c.isalpha())
+    if letters / max(1, len(sample)) < 0.5 or sample.count("\ufffd") > len(sample) * 0.01:
+        return False, "văn bản giống rác OCR/mã hoá lỗi"
+
+    if (target_lang or "vi").lower() == "vi" and letters:
+        vi_chars = len(_VI_DIACRITICS_RE.findall(sample))
+        if vi_chars / letters > 0.06:
+            return False, "nội dung đã là tiếng Việt (không cần dịch)"
+
+    meta = _read_file_metadata_text(path)
+    haystack = set(_fold(f"{meta} {stripped[:30_000]}").split())
+
+    def coverage(s: str) -> Optional[float]:
+        toks = _tokens(s)
+        if not toks:
+            return None
+        return sum(1 for t in toks if t in haystack) / len(toks)
+
+    covs = [c for c in (coverage(f"{title} {author}" if author not in ("", "Unknown") else title), coverage(query)) if c is not None]
+    if covs and max(covs) < 0.5:
+        # Nếu query tiếng Việt và title không có -> không đủ dữ kiện để loại, chỉ loại khi có title
+        if not (_VI_DIACRITICS_RE.search(query or "") and not title):
+            return False, f"không thấy tên sách/tác giả trong metadata hoặc trang đầu (khớp {max(covs):.0%})"
+    return True, "ok"
+
+
+def rank_candidates(
+    query: str,
+    results: list[BookSearchResult],
+    preferred_formats: Optional[list[str]] = None,
+    target_lang: str = "vi",
+) -> list[tuple[int, BookSearchResult, list[str]]]:
+    """Chấm lại + sắp xếp ứng viên (điểm cao trước). Hàm thuần, dễ test."""
+    from .providers import _normalize_query_variants
+
+    pref = [f.lower().strip(".") for f in (preferred_formats or ["epub", "docx", "pdf"])]
+    try:
+        queries = [query] + [v for v in _normalize_query_variants(query) if v != query]
+    except Exception:
+        queries = [query]
+    ranked: list[tuple[int, BookSearchResult, list[str]]] = []
+    seen: set[str] = set()
+    for r in results:
+        key = (r.download_url or "").strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        score, reasons = score_candidate(queries, r, target_lang=target_lang)
+        fmt = (r.format or "").lower()
+        if fmt in pref:
+            bonus = max(0, 6 - 3 * pref.index(fmt))
+            if bonus:
+                score += bonus
+                reasons.append(f"preferred_format:+{bonus}")
+        else:
+            score -= 12
+            reasons.append("not_preferred_format:-12")
+        ranked.append((score, r, reasons))
+    ranked.sort(key=lambda t: (t[0], t[1].year or ""), reverse=True)
+    return ranked
+
+
 async def auto_search_and_download(
     query: str,
     dest_dir: str,
     preferred_formats: list[str] = ["epub", "docx", "pdf"],
     progress_cb: Optional[Callable] = None,
+    target_lang: str = "vi",
 ) -> tuple[BookSearchResult, str]:
     """
-    Tự động gọi search_books(query), lọc và sắp xếp các kết quả tốt nhất
-    (ưu tiên khớp tên sách + định dạng ưu tiên), thử tải lần lượt top 8 ứng viên
-    cho đến khi tải thành công 1 file hợp lệ!
+    Tìm theo tên sách, chấm điểm (bản gốc, định dạng text sạch, khớp tên...), tải lần lượt các ứng viên tốt nhất
+    và VALIDATE file (đủ văn bản, đúng sách). Ứng viên hỏng bị xoá và chuyển sang ứng viên kế tiếp,
+    có giới hạn số lần thử và tổng thời gian.
     """
     await _notify_progress(progress_cb, {"stage": "searching", "query": query})
     all_results = await search_books(query, limit=35)
     if not all_results:
         raise ValueError(f"Không tìm thấy kết quả nào cho từ khóa: {query!r}")
 
-    norm_preferred = [fmt.lower().strip(".") for fmt in (preferred_formats or ["epub", "docx", "pdf"])]
-    format_rank = {fmt: idx for idx, fmt in enumerate(norm_preferred)}
-
-    filtered = [r for r in all_results if r.format.lower() in format_rank]
-    if not filtered:
-        filtered = all_results
-    else:
-        # Sắp xếp ưu tiên các bản có priority_score cao (khớp tiêu đề) trước, sau đó đến format_rank
-        filtered.sort(
-            key=lambda r: (
-                0 if r.priority_score >= 105 else 1,
-                format_rank.get(r.format.lower(), 999),
-                -r.priority_score,
-            )
-        )
-
-    top_candidates = filtered[:8]
+    ranked = rank_candidates(query, all_results, preferred_formats, target_lang)
+    good = [t for t in ranked if t[0] >= MIN_ACCEPTABLE_SCORE]
+    chosen = good if good else ranked[:3]
+    top_candidates = chosen[:MAX_CANDIDATES]
     errors: list[str] = []
+    started = time.monotonic()
 
-    for idx, candidate in enumerate(top_candidates):
+    for idx, (score, candidate, reasons) in enumerate(top_candidates):
+        if time.monotonic() - started > AUTO_TOTAL_TIMEOUT_S:
+            errors.append("Hết ngân sách thời gian tổng, dừng thử thêm ứng viên.")
+            break
+        file_path: Optional[str] = None
         try:
             await _notify_progress(
                 progress_cb,
@@ -516,17 +696,45 @@ async def auto_search_and_download(
                     "title": candidate.title,
                     "format": candidate.format,
                     "source": candidate.source,
+                    "score": score,
                 },
             )
-            file_path = await download_book(candidate, dest_dir=dest_dir, progress_cb=progress_cb)
+            remaining = AUTO_TOTAL_TIMEOUT_S - (time.monotonic() - started)
+            file_path = await asyncio.wait_for(
+                download_book(candidate, dest_dir=dest_dir, progress_cb=progress_cb),
+                timeout=max(20.0, min(PER_CANDIDATE_TIMEOUT_S, remaining)),
+            )
+            await _notify_progress(progress_cb, {"stage": "validating", "title": candidate.title})
+            ok, why = await asyncio.wait_for(
+                asyncio.to_thread(
+                    validate_downloaded_book,
+                    file_path,
+                    query,
+                    candidate.title,
+                    candidate.author,
+                    MIN_BOOK_CHARS,
+                    target_lang,
+                ),
+                timeout=60.0,
+            )
+            if not ok:
+                raise ValueError(f"file không hợp lệ: {why}")
             return candidate, file_path
+        except asyncio.TimeoutError:
+            err_msg = f"[{candidate.source} - {candidate.format.upper()}] {candidate.title}: quá thời gian"
+            logger.warning("Candidate %d timeout: %s", idx + 1, err_msg)
+            errors.append(err_msg)
         except Exception as exc:
             err_msg = f"[{candidate.source} - {candidate.format.upper()}] {candidate.title}: {exc}"
             logger.warning("Candidate %d failed: %s", idx + 1, err_msg)
             errors.append(err_msg)
-            continue
+        if file_path:
+            try:
+                os.remove(file_path)
+            except OSError:
+                pass
 
     raise RuntimeError(
-        f"Đã thử tải top {len(top_candidates)} kết quả tốt nhất cho {query!r} nhưng đều thất bại:\n"
+        f"Đã thử tải {len(errors)} ứng viên tốt nhất cho {query!r} nhưng đều thất bại:\n"
         + "\n".join(errors)
     )

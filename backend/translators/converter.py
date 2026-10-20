@@ -142,6 +142,21 @@ def extract_book_sample_text(input_path: str, max_chars: int = 12000) -> str:
         return ""
 
 
+def extract_book_spread_sample(input_path: str, total_chars: int = 15000) -> str:
+    """
+    Lấy mẫu rải đều từ đầu (bỏ qua trang bìa/mục lục), giữa và cuối sách
+    để Agent 2 hiểu đúng thể loại, nhân vật và thuật ngữ cả cuốn thay vì chỉ vài trang đầu.
+    """
+    full = extract_book_sample_text(input_path, 600_000)
+    if len(full) <= total_chars:
+        return full
+    part = total_chars // 3
+    n = len(full)
+    starts = [int(n * 0.03), int(n * 0.40), int(n * 0.75)]
+    starts = [min(st, n - part) for st in starts]
+    return (chr(10) * 2 + "[...]" + chr(10) * 2).join(full[st : st + part] for st in starts)
+
+
 def _setup_clean_docx_styles(doc: docx.document.Document) -> None:
     """
     Thiết lập font chữ chuẩn Tiếng Việt (Times New Roman / Arial / Segoe UI)

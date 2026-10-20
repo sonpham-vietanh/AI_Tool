@@ -8,5 +8,5 @@ echo.
 echo [1/2] Dang khoi dong Backend Server tai http://localhost:8088 ...
 cd /d "%~dp0"
 start "" "http://localhost:8088"
-python -m uvicorn backend.main:app --host 0.0.0.0 --port 8088 --reload
+python -m uvicorn backend.main:app --host 127.0.0.1 --port 8088 --reload
 pause

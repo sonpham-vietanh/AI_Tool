@@ -113,23 +113,27 @@ def build_system_prompt(
     glossary: Optional[List[Dict[str, str]]] = None,
     context: str = "",
     is_batch: bool = False,
+    book_brief: str = "",
+    term_candidates: Optional[List[str]] = None,
 ) -> str:
     """
     Constructs an industrial-grade book translation System Prompt tailored for natural,
     publication-quality output with dynamic Glossary injection and Rolling Context.
     """
-    base_instructions = f"""Bạn là một dịch giả kiêm biên tập viên xuất bản sách chuyên nghiệp hàng đầu, chuyên dịch sách sang {target_lang}.
+    base_instructions = f"""Bạn là dịch giả sách chuyên nghiệp kiêm biên tập viên xuất bản, dịch sang {target_lang}. Bản dịch của bạn phải đọc như sách được viết gốc bằng {target_lang} bởi một tác giả giỏi, KHÔNG phải văn dịch.
 
-### NGUYÊN TẮC DỊCH THUẬT CỐT LÕI:
-1. **Văn phong tự nhiên, chuẩn xuất bản**:
-   - Dịch thoát ý dựa trên ngữ cảnh, mượt mà, giàu nhịp điệu, đúng văn phong chuyên ngành của sách (Kinh tế, Tài chính, Kỹ thuật, Công nghệ, Y học, Tâm lý học, Triết học, Lịch sử hoặc Tiểu thuyết văn học).
-   - TUYỆT ĐỐI KHÔNG dịch word-by-word (dịch từng chữ) cứng nhắc theo cấu trúc ngữ pháp tiếng nước ngoài.
-   - Nếu dịch sang Tiếng Việt: Tránh lạm dụng câu bị động cứng nhắc ("bị/được... bởi"), tránh lạm dụng trạng từ "một cách...", tránh lặp từ "của", "những", "các" không cần thiết. Chuyển đổi linh hoạt sang cấu trúc chủ động hoặc câu tự nhiên của người Việt.
-2. **Bảo toàn định dạng & Ký hiệu**:
-   - Giữ nguyên các thẻ đánh dấu, ký hiệu toán học, mã lệnh (code snippets), số liệu thống kê, trích dẫn tài liệu `[1]`, `(Smith, 2020)` và tên riêng không cần dịch.
-   - Không tự ý cắt bớt nội dung, không tóm tắt, không thêm lời bình luận hay giải thích của AI.
-3. **Tính nhất quán (Consistency)**:
-   - Giữ nhất quán đại từ nhân xưng (tôi/ta, anh/cô, ông/bà, chúng ta...) và thuật ngữ chuyên môn xuyên suốt các đoạn văn."""
+### QUY TRÌNH (làm thầm trong đầu, chỉ xuất bản dịch cuối cùng):
+1. Hiểu đúng ý, giọng điệu và mục đích của đoạn văn trong mạch sách (xem BOOK BRIEF nếu có).
+2. Viết lại trọn ý bằng cấu trúc câu tự nhiên của {target_lang}, KHÔNG bám cấu trúc ngữ pháp tiếng gốc.
+3. Tự rà soát trước khi trả lời: có câu nào nghe như văn dịch, thừa chữ, sai sắc thái, sai thuật ngữ, lệch xưng hô, hay bỏ sót ý không? Sửa ngay rồi mới xuất.
+
+### NGUYÊN TẮC:
+1. **Tự nhiên, chuẩn xuất bản**: dịch thoát ý, nhịp câu có lên xuống, đúng giọng của thể loại. Không dịch word-by-word.
+   - Với Tiếng Việt: hạn chế câu bị động "bị/được ... bởi", trạng từ "một cách ...", lặp "của/những/các/việc/sự" không cần thiết; ưu tiên câu chủ động, ngắt câu dài thành câu ngắn khi cần; thành ngữ/ẩn dụ chuyển bằng cách nói tương đương của người Việt thay vì dịch nghĩa đen.
+2. **Trung thực tuyệt đối**: không bỏ sót, không tóm tắt, không thêm ý, không bình luận hay giải thích của AI. Giữ nguyên số liệu, công thức, code, URL, trích dẫn dạng `[1]`, `(Smith, 2020)`.
+3. **Nhất quán**: cùng một thuật ngữ, tên riêng, cách xưng hô phải được dịch giống nhau xuyên suốt cuốn sách. GLOSSARY và BOOK BRIEF là bắt buộc.
+4. **Tên riêng & thuật ngữ**: theo GLOSSARY; nếu chưa có thì theo quy ước trong BOOK BRIEF; lần đầu xuất hiện của khái niệm chuyên ngành lạ có thể kèm gốc trong ngoặc.
+5. **Thẻ định dạng**: giữ nguyên chính xác các dấu ⟦n⟧ ⟦/n⟧ ⟦n/⟧ (nếu có), đặt chúng vào đúng từ/cụm tương ứng trong bản dịch; không bỏ, không thêm, không đổi số."""
 
     blocks = [base_instructions]
 
@@ -137,6 +141,9 @@ def build_system_prompt(
         blocks.append(
             f"### YÊU CẦU ĐẶC BIỆT TỪ ĐỘC GIẢ / BIÊN TẬP VIÊN:\n{custom_prompt.strip()}"
         )
+
+    if book_brief and book_brief.strip():
+        blocks.append(f"### BOOK BRIEF (đặc điểm & quy ước dịch của CUỐN SÁCH NÀY, bắt buộc tuân thủ):\n{book_brief.strip()}")
 
     glossary_str = format_glossary_block(glossary)
     if glossary_str:
@@ -156,6 +163,16 @@ def build_system_prompt(
 - KHÔNG gộp hai đoạn làm một, KHÔNG tách một đoạn thành hai thẻ, KHÔNG bỏ sót bất kỳ thẻ `[[#i]]` nào.
 - Chỉ trả về nội dung đã dịch kèm thẻ `[[#i]]`, không thêm bất kỳ lời mở đầu hay kết thúc nào."""
         )
+        cands = [c.strip() for c in (term_candidates or []) if c and c.strip()]
+        if cands:
+            blocks.append(
+                "### GHI NHỚ THUẬT NGỮ MỚI (để giữ nhất quán các batch sau):\n"
+                "Các tên riêng/thuật ngữ sau chưa có trong GLOSSARY: "
+                + "; ".join(cands[:24])
+                + ".\nSau khi dịch xong TẤT CẢ các đoạn, nếu có mục nào trong danh sách trên thật sự là tên riêng/thuật ngữ cần dịch nhất quán, "
+                "thêm ở CUỐI CÙNG một dòng `[[TERMS]]` rồi mỗi dòng một mục dạng `gốc => cách bạn đã dịch` (đúng như bạn đã dùng trong bản dịch). "
+                "Chỉ liệt kê mục mới trong danh sách trên; bỏ qua nếu không có."
+            )
     else:
         blocks.append(
             "### ĐỊNH DẠNG ĐẦU RA:\nChỉ trả về duy nhất bản dịch hoàn chỉnh của đoạn văn đầu vào, không thêm lời dẫn, không giải thích."
@@ -200,6 +217,7 @@ def build_editor_system_prompt(
     custom_prompt: str = "",
     glossary: Optional[List[Dict[str, str]]] = None,
     is_batch: bool = True,
+    book_brief: str = "",
 ) -> str:
     """
     System prompt for Agent 4: Chief Editor & Literary Critic Agent.
@@ -213,6 +231,7 @@ def build_editor_system_prompt(
    - Các câu bị dịch word-by-word (sát chữ ngô nghê), cấu trúc bị động cứng nhắc ("bị/được... bởi", "một cách...").
    - Các lỗi sai lệch sắc thái nghĩa, sai thuật ngữ chuyên ngành hoặc thiếu tự nhiên trong {target_lang}.
 3. Chuốt lại câu văn cho thật mượt mà, gãy gọn, giàu nhịp điệu chuẩn sách xuất bản, nhưng **TUYỆT ĐỐI giữ nguyên 100% ý nghĩa gốc, số liệu, công thức và ký hiệu**.
+4. Giữ nguyên chính xác các dấu ⟦n⟧ ⟦/n⟧ ⟦n/⟧ (nếu có), đặt chúng vào đúng từ/cụm tương ứng trong bản dịch; không bỏ, không thêm, không đổi số.
 """
     blocks = [base]
     if custom_prompt and custom_prompt.strip():
@@ -244,3 +263,52 @@ def build_editor_batch_user_prompt(
         )
     return "\n\n".join(parts)
 
+
+def build_book_profile_prompt(
+    sample_text: str, target_lang: str = "Tiếng Việt", max_terms: int = 40
+) -> str:
+    """Agent 2: phân tích cuốn sách một lần để tạo BOOK BRIEF + glossary, thay cho việc người dùng tự viết prompt."""
+    return f"""Bạn là tổng biên tập một nhà xuất bản, chuẩn bị "hồ sơ dịch thuật" để một nhóm dịch giả dịch cuốn sách này sang {target_lang} thật nhất quán và hay.
+Dưới đây là các đoạn trích lấy từ đầu, giữa và cuối sách. Hãy phân tích và trả về DUY NHẤT một JSON object (không lời dẫn, không markdown) có cấu trúc:
+
+{{
+  "genre": "thể loại cụ thể (VD: sách kinh doanh, tiểu thuyết trinh thám, kỹ thuật phần mềm, tự truyện...)",
+  "audience": "độc giả mục tiêu",
+  "tone": "giọng văn của tác giả (VD: hài hước, học thuật, truyền cảm hứng, kể chuyện ngôi thứ nhất...)",
+  "narration": "ngôi kể / cách tác giả xưng hô với độc giả",
+  "address_rules": "quy ước xưng hô khi dịch sang {target_lang} (VD: tác giả xưng 'tôi', gọi độc giả là 'bạn'; nhân vật A gọi B là 'anh'...). Nêu cụ thể theo quan hệ nhân vật nếu là tiểu thuyết",
+  "style_rules": ["5-8 quy tắc văn phong cụ thể để bản dịch hay và đúng chất sách này"],
+  "do_not_translate": ["tên/thuật ngữ nên giữ nguyên tiếng gốc"],
+  "glossary": [{{"src": "thuật ngữ/tên riêng gốc", "dst": "cách dịch chuẩn", "note": "loại, ngắn gọn"}}]
+}}
+
+Yêu cầu glossary: tối đa {max_terms} mục; chỉ gồm tên nhân vật, địa danh, tổ chức, khái niệm/thuật ngữ đặc thù xuất hiện nhiều hoặc quan trọng; KHÔNG đưa từ vựng thông thường.
+
+### ĐOẠN TRÍCH:
+\"\"\"
+{sample_text[:18000]}
+\"\"\""""
+
+
+def format_book_brief(profile: Dict[str, object]) -> str:
+    """Biến profile JSON thành đoạn BOOK BRIEF ngắn gọn để chèn vào mọi prompt dịch."""
+    lines: List[str] = []
+    for key, label in (
+        ("genre", "Thể loại"),
+        ("audience", "Độc giả"),
+        ("tone", "Giọng văn"),
+        ("narration", "Ngôi kể"),
+        ("address_rules", "Quy ước xưng hô"),
+    ):
+        val = str(profile.get(key) or "").strip()
+        if val:
+            lines.append(f"- {label}: {val}")
+    rules = profile.get("style_rules")
+    if isinstance(rules, list):
+        for r in rules[:8]:
+            if str(r).strip():
+                lines.append(f"- Văn phong: {str(r).strip()}")
+    keep = profile.get("do_not_translate")
+    if isinstance(keep, list) and keep:
+        lines.append("- Giữ nguyên gốc: " + ", ".join(str(k) for k in keep[:20]))
+    return chr(10).join(lines)

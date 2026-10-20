@@ -22,7 +22,7 @@
     },
     hybrid: {
       model: "cc/claude-sonnet-5-5",
-      baseUrl: "https://ryg2i56.abc-tunnel.us/v1",
+      baseUrl: "https://api.openai.com/v1",
       label: "Hybrid (Claude + Gemini)",
       help: "🔥 <strong>Chế độ Hybrid Song Song:</strong> Tự động chia tải (Load-Balance) đồng thời qua cả <strong>Kho 1 (Claude Gateway)</strong> và <strong>Kho 2 (Gemini Ultra)</strong> — Tăng gấp đôi tốc độ dịch và tự động đổi sang Engine còn lại nếu 1 bên chạm giới hạn Rate Limit!",
     },
@@ -34,13 +34,13 @@
     },
     openai: {
       model: "cc/claude-sonnet-5-5",
-      baseUrl: "https://ryg2i56.abc-tunnel.us/v1",
+      baseUrl: "https://api.openai.com/v1",
       label: "Claude Gateway",
-      help: "💡 <strong>Custom AI Gateway (abc-tunnel.us):</strong> Đã cấu hình sẵn Endpoint <code>https://ryg2i56.abc-tunnel.us/v1</code> với đầy đủ các model: <code>cc/claude-sonnet-5-5</code>, <code>cc/claude-opus-5-5</code>, <code>cc/claude-fable-5-1</code>, <code>cc/claude-haiku-4-5-20251001</code>.",
+      help: "💡 <strong>Custom AI Gateway:</strong> Nhập Base URL của gateway tương thích OpenAI và API key của bạn. Các model gợi ý: <code>cc/claude-sonnet-5-5</code>, <code>cc/claude-opus-5-5</code>, <code>cc/claude-fable-5-1</code>, <code>cc/claude-haiku-4-5-20251001</code>.",
     },
     claude: {
       model: "cc/claude-sonnet-5-5",
-      baseUrl: "https://ryg2i56.abc-tunnel.us/v1",
+      baseUrl: "https://api.openai.com/v1",
       label: "Claude Sonnet 5.5",
       help: "💡 <strong>Anthropic Claude (qua Gateway):</strong> Văn phong dịch văn học, kinh tế và tâm lý học tự nhiên, mượt mà nhất.",
     },
@@ -81,13 +81,74 @@
     completed: { text: "Hoàn tất 100%", cls: "status-completed" },
     failed: { text: "Thất bại", cls: "status-failed" },
     cancelled: { text: "Đã dừng", cls: "status-cancelled" },
+    interrupted: { text: "⏸️ Bị gián đoạn — có thể tiếp tục", cls: "status-cancelled" },
   };
+
+  // Translation mode presets -> backend LLMConfig fields
+  const TRANSLATE_MODES = {
+    fast: {
+      enable_editor_agent: false,
+      batch_chars: 8000,
+      batch_items: 40,
+      hint: "Nhanh nhất: 1 lượt dịch, batch lớn, không biên tập lại.",
+    },
+    balanced: {
+      enable_editor_agent: false,
+      batch_chars: 5000,
+      batch_items: 24,
+      hint: "1 lượt dịch + BOOK BRIEF tự động. Cân bằng tốc độ và chất lượng.",
+    },
+    quality: {
+      enable_editor_agent: true,
+      batch_chars: 3000,
+      batch_items: 14,
+      hint: "Thêm lượt biên tập Agent 4, batch nhỏ: văn mượt nhất nhưng chậm hơn.",
+    },
+  };
+  const MODE_STORAGE_KEY = "bth_translate_mode";
+
+  function getTranslateMode() {
+    const v = el("translateModeSelect")?.value;
+    return TRANSLATE_MODES[v] ? v : "balanced";
+  }
+
+  function applyTranslateMode(mode, persist) {
+    if (!TRANSLATE_MODES[mode]) mode = "balanced";
+    const sel = el("translateModeSelect");
+    if (sel) sel.value = mode;
+    const cfg = TRANSLATE_MODES[mode];
+    const cb = el("enableEditorAgentCheckbox");
+    if (cb) {
+      cb.checked = cfg.enable_editor_agent;
+      document
+        .querySelector('.agent-node-card[data-agent-node="4"]')
+        ?.classList.toggle("agent-disabled", !cfg.enable_editor_agent);
+    }
+    if (el("translateModeHint")) el("translateModeHint").textContent = cfg.hint;
+    if (persist) {
+      try {
+        localStorage.setItem(MODE_STORAGE_KEY, mode);
+      } catch (e) {
+        /* ignore */
+      }
+    }
+  }
+
+  function formatDuration(sec) {
+    sec = Math.max(0, Math.floor(Number(sec) || 0));
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = sec % 60;
+    if (h > 0) return `${h}g ${m}p ${s}s`;
+    if (m > 0) return `${m}p ${s}s`;
+    return `${s}s`;
+  }
 
   // State (Loaded from /api/settings on startup)
   let appSettings = {
     provider: "openai",
     model: "cc/claude-sonnet-5-5",
-    base_url: "https://ryg2i56.abc-tunnel.us/v1",
+    base_url: "https://api.openai.com/v1",
     api_keys: [],
     gemini_api_keys: [],
     gemini_model: "gemini-2.5-pro",
@@ -168,9 +229,11 @@
     const langCode = el("targetLangSelect")?.value || "vi";
     const bilingualMode = el("bilingualModeSelect")?.value || "mono";
     const autoGlossary = !!el("autoGlossaryCheckbox")?.checked;
+    const modeCfg = TRANSLATE_MODES[getTranslateMode()];
+    // Checkbox is kept in sync with the mode but may be overridden manually.
     const enableEditor = el("enableEditorAgentCheckbox")
       ? !!el("enableEditorAgentCheckbox").checked
-      : true;
+      : modeCfg.enable_editor_agent;
     const agentGlossaryModel = el("agentGlossaryModelSelect")?.value || null;
     const agentEditorModel =
       el("agentEditorModelSelect")?.value || appSettings.model || "cc/claude-sonnet-5-5";
@@ -198,6 +261,8 @@
       bilingual: bilingualMode === "bilingual",
       auto_glossary: autoGlossary,
       enable_editor_agent: enableEditor,
+      batch_chars: modeCfg.batch_chars,
+      batch_items: modeCfg.batch_items,
       agent_glossary_model: agentGlossaryModel,
       agent_translator_model: appSettings.model,
       agent_editor_model: agentEditorModel,
@@ -306,7 +371,7 @@
           appSettings.provider =
             s.ui_provider || (s.provider === "google_free" ? "gtx" : s.provider) || "openai";
           appSettings.model = s.model || "cc/claude-sonnet-5-5";
-          appSettings.base_url = s.base_url || "https://ryg2i56.abc-tunnel.us/v1";
+          appSettings.base_url = s.base_url || "https://api.openai.com/v1";
           appSettings.api_keys = Array.isArray(s.api_keys) ? s.api_keys : [];
           appSettings.gemini_api_keys = Array.isArray(s.gemini_api_keys)
             ? s.gemini_api_keys
@@ -422,7 +487,7 @@
     }
     if (el("settingBaseUrlInput")) {
       el("settingBaseUrlInput").value =
-        appSettings.base_url || "https://ryg2i56.abc-tunnel.us/v1";
+        appSettings.base_url || "https://api.openai.com/v1";
     }
     if (el("settingApiKeysTextarea")) {
       el("settingApiKeysTextarea").value = (appSettings.api_keys || []).join("\n");
@@ -485,7 +550,7 @@
       model: activeModel,
       base_url:
         (el("settingBaseUrlInput")?.value || "").trim() ||
-        "https://ryg2i56.abc-tunnel.us/v1",
+        "https://api.openai.com/v1",
       api_keys: gwKeys,
       gemini_api_keys: gmKeys,
       gemini_model: gmModel,
@@ -1026,6 +1091,29 @@
       cancelBtn.style.display = isRunning ? "inline-flex" : "none";
     }
 
+    // Resume / Delete buttons
+    el("btnResumeActiveJob")?.classList.toggle("hidden", job.status !== "interrupted");
+    el("btnDeleteActiveJob")?.classList.toggle("hidden", isRunning);
+
+    // Elapsed time
+    if (el("activeJobElapsed")) {
+      const t0 = Number(job.started_at || job.created_at || 0);
+      const t1 = isRunning ? Date.now() / 1000 : Number(job.finished_at || job.updated_at || 0);
+      el("activeJobElapsed").textContent =
+        t0 > 0 && t1 >= t0 ? `⏳ Đã chạy: ${formatDuration(t1 - t0)}` : "⏳ Đã chạy: --";
+    }
+
+    // BOOK BRIEF (don't clobber while user is typing)
+    const briefTa = el("bookBriefTextarea");
+    if (briefTa && document.activeElement !== briefTa) {
+      const incoming = job.brief || "";
+      if (briefTa.dataset.jobId !== job.id || briefTa.dataset.dirty !== "1") {
+        if (briefTa.value !== incoming) briefTa.value = incoming;
+        briefTa.dataset.jobId = job.id;
+        briefTa.dataset.dirty = "0";
+      }
+    }
+
     // Glossary Approval Banner & Tab Button
     const isAwaitingGlossary = job.status === "awaiting_glossary_approval";
     el("glossaryApprovalBanner")?.classList.toggle("hidden", !isAwaitingGlossary);
@@ -1078,7 +1166,7 @@
     if (el("activeJobSpeed")) {
       const spd = job.speed_chunks_per_min || 0;
       el("activeJobSpeed").textContent =
-        spd > 0 ? `⚡ Tốc độ: ${spd} đoạn/phút` : "⚡ Tốc độ: Đa luồng Async";
+        spd > 0 ? `⚡ ${spd} đoạn/phút` : "⚡ Đa luồng Async";
     }
     if (el("activeJobEta")) {
       el("activeJobEta").textContent = `⏱️ ETA: ${formatEta(job.eta_seconds)}`;
@@ -1552,6 +1640,82 @@
     }
   }
 
+  async function resumeActiveJob() {
+    if (!activeJobId) return;
+    try {
+      const res = await fetch(`/api/jobs/${encodeURIComponent(activeJobId)}/resume`, {
+        method: "POST",
+      });
+      if (res.status === 404 || res.status === 405) {
+        showToast("Máy chủ chưa hỗ trợ tiếp tục tiến trình này.", "warning");
+        return;
+      }
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        showToast(d.detail || "Không thể tiếp tục tiến trình.", "error");
+        return;
+      }
+      showToast("Đang tiếp tục tiến trình dịch...", "success");
+      await fetchJobsList();
+    } catch (err) {
+      showToast("Không thể tiếp tục: " + err.message, "error");
+    }
+  }
+
+  async function deleteActiveJob() {
+    if (!activeJobId) return;
+    if (!window.confirm("Xóa tiến trình này và các file kết quả? Không thể hoàn tác.")) return;
+    try {
+      const res = await fetch(`/api/jobs/${encodeURIComponent(activeJobId)}`, {
+        method: "DELETE",
+      });
+      if (res.status === 404 || res.status === 405) {
+        showToast("Máy chủ chưa hỗ trợ xóa tiến trình.", "warning");
+        return;
+      }
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        showToast(d.detail || "Không thể xóa tiến trình.", "error");
+        return;
+      }
+      showToast("Đã xóa tiến trình.", "success");
+      jobsList = jobsList.filter((j) => j.id !== activeJobId);
+      activeJobId = null;
+      renderedPreviewCount = 0;
+      renderActiveJobStudio(null);
+      await fetchJobsList();
+      if (!activeJobId) renderJobsSidebar();
+    } catch (err) {
+      showToast("Không thể xóa: " + err.message, "error");
+    }
+  }
+
+  async function saveActiveJobBrief() {
+    if (!activeJobId) return;
+    const ta = el("bookBriefTextarea");
+    const status = el("bookBriefStatus");
+    if (!ta) return;
+    try {
+      const res = await fetch(`/api/jobs/${encodeURIComponent(activeJobId)}/brief`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brief: ta.value }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        showToast(d.detail || "Không thể lưu BOOK BRIEF.", "error");
+        return;
+      }
+      ta.dataset.dirty = "0";
+      const job = jobsList.find((j) => j.id === activeJobId);
+      if (job) job.brief = ta.value;
+      if (status) status.textContent = "Đã lưu.";
+      showToast("Đã lưu BOOK BRIEF. Bấm 'Đóng gói lại' để áp dụng cho file xuất.", "success");
+    } catch (err) {
+      showToast("Không thể lưu BOOK BRIEF: " + err.message, "error");
+    }
+  }
+
   // =========================================================================
   // 5. EVENT LISTENERS & INITIALIZATION
   // =========================================================================
@@ -1764,6 +1928,18 @@
         .querySelector('.agent-node-card[data-agent-node="2"]')
         ?.classList.toggle("agent-disabled", !ag2Check.checked);
     });
+    // 3-level translation mode selector
+    let savedMode = "balanced";
+    try {
+      savedMode = localStorage.getItem(MODE_STORAGE_KEY) || "balanced";
+    } catch (e) {
+      /* ignore */
+    }
+    applyTranslateMode(savedMode, false);
+    el("translateModeSelect")?.addEventListener("change", () =>
+      applyTranslateMode(getTranslateMode(), true)
+    );
+
     ag4Check?.addEventListener("change", () => {
       document
         .querySelector('.agent-node-card[data-agent-node="4"]')
@@ -1847,6 +2023,8 @@
     const subPreviewBtn = el("subtabPreviewBtn");
     const subAgentLogsBtn = el("subtabAgentLogsBtn");
     const subGlossaryBtn = el("subtabGlossaryBtn");
+    const subBriefBtn = el("subtabBriefBtn");
+    const subBriefPane = el("subtabBriefPane");
     const subPreviewPane = el("subtabPreviewPane");
     const subAgentLogsPane = el("subtabAgentLogsPane");
     const subGlossaryPane = el("subtabGlossaryPane");
@@ -1859,7 +2037,17 @@
       subPreviewPane?.classList.toggle("hidden", which !== "preview");
       subAgentLogsPane?.classList.toggle("hidden", which !== "agentlogs");
       subGlossaryPane?.classList.toggle("hidden", which !== "glossary");
+      subBriefBtn?.classList.toggle("active", which === "brief");
+      subBriefPane?.classList.toggle("hidden", which !== "brief");
     }
+    subBriefBtn?.addEventListener("click", () => activateSubtab("brief"));
+    el("bookBriefTextarea")?.addEventListener("input", (e) => {
+      e.target.dataset.dirty = "1";
+      if (el("bookBriefStatus")) el("bookBriefStatus").textContent = "Chưa lưu";
+    });
+    el("btnSaveBrief")?.addEventListener("click", saveActiveJobBrief);
+    el("btnResumeActiveJob")?.addEventListener("click", resumeActiveJob);
+    el("btnDeleteActiveJob")?.addEventListener("click", deleteActiveJob);
 
     subPreviewBtn?.addEventListener("click", () => activateSubtab("preview"));
     subAgentLogsBtn?.addEventListener("click", () => activateSubtab("agentlogs"));
