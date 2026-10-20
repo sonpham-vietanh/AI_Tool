@@ -150,19 +150,63 @@ def _prettify_filename_title(url_or_name: str, fallback: str = "") -> str:
     return raw
 
 
+def _normalize_query_variants(raw_query: str) -> list[str]:
+    """
+    Tạo các biến thể truy vấn sạch (bỏ dấu ':', tách tiêu đề chính trước ':' + tên tác giả sau 'by')
+    để Yahoo Search không bị lỗi '500 INKApi Error' và Archive.org tìm trúng kho công khai.
+    Ví dụ:
+      'The Art of Learning: An Inner Journey to Optimal Performance by Josh Waitzkin'
+      -> ['The Art of Learning Josh Waitzkin', 'The Art of Learning An Inner Journey to Optimal Performance Josh Waitzkin']
+    """
+    q = (raw_query or "").strip()
+    if not q:
+        return []
+
+    variants: list[str] = []
+
+    # Tách phần tác giả nếu có ' by Author'
+    author_part = ""
+    title_part = q
+    m_by = re.search(r"\s+\bby\s+([A-Za-zÀ-ỹ0-9.\s,'-]+)$", q, re.I)
+    if m_by:
+        author_part = m_by.group(1).strip()
+        title_part = q[: m_by.start()].strip()
+
+    # Nếu tiêu đề có dấu ':' hoặc ' - ' (phụ đề dài), lấy tiêu đề chính + tác giả làm truy vấn ngắn chuẩn nhất
+    if ":" in title_part or " - " in title_part:
+        main_title = re.split(r"[:\-–—]", title_part, maxsplit=1)[0].strip()
+        if len(main_title) >= 3:
+            short_q = f"{main_title} {author_part}".strip()
+            short_q = re.sub(r"[:?!\"'()\[\]{}]+", " ", short_q)
+            short_q = re.sub(r"\s+", " ", short_q).strip()
+            if short_q and short_q not in variants:
+                variants.append(short_q)
+
+    # Bản đầy đủ nhưng đã loại bỏ từ nối 'by' và ký tự ':' gây lỗi Yahoo/Lucene
+    full_clean = f"{title_part} {author_part}".strip() if author_part else q
+    full_clean = re.sub(r"[:?!\"'()\[\]{}]+", " ", full_clean)
+    full_clean = re.sub(r"\s+", " ", full_clean).strip()
+    if full_clean and full_clean not in variants:
+        variants.append(full_clean)
+
+    return variants
+
+
 async def _expand_bilingual_queries(query: str, client: httpx.AsyncClient) -> list[str]:
     """
-    Nếu người dùng nhập tên sách bằng tiếng Việt hoặc tên ngắn, tự động mở rộng
-    thành danh sách từ khóa gồm cả tên gốc và tên tiếng Anh để tìm được nhiều bản leak nhất.
+    Nếu người dùng nhập tên sách bằng tiếng Việt, tên ngắn, hoặc tên kèm phụ đề dài ('Title: Subtitle by Author'),
+    tự động mở rộng thành danh sách từ khóa sạch gồm cả tên ngắn + tác giả và tên tiếng Anh.
     """
     q_clean = query.strip()
-    queries = [q_clean]
+    queries = _normalize_query_variants(q_clean)
+    if not queries:
+        queries = [q_clean]
     q_lower = q_clean.lower()
 
     for vi_name, en_name in VI_TO_EN_BOOK_TITLES.items():
         if vi_name in q_lower:
             if en_name not in queries:
-                queries.append(en_name)
+                queries.insert(0, en_name)
             break
 
     # Kiểm tra nếu có ký tự tiếng Việt có dấu mà chưa có trong từ điển
@@ -176,8 +220,9 @@ async def _expand_bilingual_queries(query: str, client: httpx.AsyncClient) -> li
             if resp.status_code == 200:
                 data = resp.json()
                 en_translated = "".join(seg[0] for seg in data[0] if seg and seg[0]).strip()
-                if en_translated and en_translated.lower() != q_lower:
-                    queries.append(en_translated)
+                for v in _normalize_query_variants(en_translated):
+                    if v and v.lower() != q_lower and v not in queries:
+                        queries.append(v)
         except Exception:
             pass
 
@@ -476,20 +521,26 @@ async def search_web_leaks_and_editions(
         pass
 
     dorks: list[str] = [
-        f"{primary_q} epub download",
-        f"{primary_q} pdf download",
-        f"{primary_q} filetype:pdf",
-        f"{primary_q} (site:github.com OR site:archive.org OR site:drive.google.com) (epub OR pdf)",
+        f"{primary_q} epub",
+        f"{primary_q} pdf",
+        f"{primary_q} github.com OR archive.org OR drive.google.com",
     ]
-    # Nếu có tên tiếng Anh mở rộng từ tên tiếng Việt, thêm dork tiếng Anh
-    if len(expanded_queries) > 1:
-        en_q = expanded_queries[1]
-        dorks.append(f"{en_q} epub download")
-        dorks.append(f"{en_q} filetype:pdf")
-        dorks.append(f"{en_q} (site:github.com OR site:archive.org OR site:drive.google.com) (epub OR pdf)")
+    # Nếu có biến thể truy vấn thứ 2 (tên tiếng Anh mở rộng từ tiếng Việt), thêm dork bổ sung
+    if len(expanded_queries) > 1 and expanded_queries[1].lower() not in primary_q.lower():
+        second_q = expanded_queries[1]
+        dorks.append(f"{second_q} epub")
+        dorks.append(f"{second_q} pdf")
 
-    tasks = [_run_yahoo_dork(client, d) for d in dorks]
-    tasks.append(_run_ddg_lite_dork(client, f"{primary_q} filetype:pdf OR filetype:epub"))
+    yahoo_sem = asyncio.Semaphore(2)
+
+    async def _bounded_yahoo(d_str: str) -> list[tuple[str, str, str]]:
+        async with yahoo_sem:
+            res_hits = await _run_yahoo_dork(client, d_str)
+            await asyncio.sleep(0.15)
+            return res_hits
+
+    tasks = [_bounded_yahoo(d) for d in dorks]
+    tasks.append(_run_ddg_lite_dork(client, f"{primary_q} pdf OR epub"))
 
     all_hit_lists = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -527,7 +578,7 @@ async def search_web_leaks_and_editions(
     # Giải mã song song các trang Archive.org /details/{id} tìm được từ Yahoo/Google
     if archive_detail_ids:
         ia_tasks = [
-            _resolve_ia_item_files({"identifier": ia_id, "title": ia_id}, primary_q, client)
+            _resolve_ia_item_files({"identifier": ia_id}, primary_q, client)
             for ia_id in archive_detail_ids[:6]
         ]
         ia_resolved = await asyncio.gather(*ia_tasks, return_exceptions=True)
@@ -885,7 +936,7 @@ async def _resolve_ia_item_files(
     except Exception:
         return []
 
-    raw_title = doc.get("title") or item_meta.get("title") or identifier
+    raw_title = item_meta.get("title") or doc.get("title") or identifier
     if isinstance(raw_title, list):
         raw_title = raw_title[0] if raw_title else identifier
     title = _clean_text(str(raw_title))
@@ -918,10 +969,14 @@ async def _resolve_ia_item_files(
     q_words = [w for w in re.sub(r"[^\w\s]", " ", query.lower()).split() if len(w) > 1]
 
     for f in files_list:
+        # Bỏ qua các file bị khóa mượn (Controlled Digital Lending / private=true -> HTTP 401/403)
+        if str(f.get("private", "")).lower() == "true":
+            continue
         fname = f.get("name") or ""
         fname_lower = fname.lower()
         if (
             "_lcp." in fname_lower
+            or "_encrypted" in fname_lower
             or "encrypted" in str(f.get("format", "")).lower()
             or fname_lower.endswith(("_bw.pdf", "_text.pdf"))
         ):
@@ -1017,8 +1072,13 @@ async def search_openlibrary(
     for eq in expanded[:2]:
         cl = _clean_lucene(eq)
         if cl:
-            ia_queries.append(f'title:("{cl}") AND mediatype:(texts)')
-            ia_queries.append(f'({cl}) AND mediatype:(texts) AND (format:(EPUB) OR format:(Text PDF) OR format:(PDF))')
+            ia_queries.append(
+                f'title:("{cl}") AND mediatype:(texts) AND -collection:(inlibrary) AND -collection:(printdisabled)'
+            )
+            ia_queries.append(
+                f'({cl}) AND mediatype:(texts) AND -collection:(inlibrary) AND -collection:(printdisabled) '
+                f'AND (format:(EPUB) OR format:(Text PDF) OR format:(PDF))'
+            )
 
     async def _fetch_ia_docs(ia_q: str) -> list[dict]:
         url = (

@@ -320,7 +320,8 @@ async def download_book(
             raise RuntimeError(f"Không tìm thấy direct download URL nào cho sách '{result.title}'.")
 
         idx = 0
-        while idx < len(direct_urls) and idx < 12:
+        rescue_attempted = False
+        while idx < len(direct_urls) and idx < 16:
             url = direct_urls[idx]
             idx += 1
             temp_file = dest_path_obj / f".tmp_{safe_title}_{os.getpid()}_{idx}.bin"
@@ -433,6 +434,35 @@ async def download_book(
                         temp_file.unlink()
                     except OSError:
                         pass
+
+                # Auto-Rescue Fallback: Nếu đã thử hết toàn bộ direct_urls ban đầu mà đều lỗi (401/403/404),
+                # tự động quét nhanh các kho công khai khác của cùng cuốn sách để cứu job!
+                if idx >= len(direct_urls) and not rescue_attempted:
+                    rescue_attempted = True
+                    rescue_q = (
+                        f"{result.title} {result.author}".strip()
+                        if result.author and result.author not in ("Unknown", "")
+                        else result.title
+                    )
+                    try:
+                        alt_results = await search_books(rescue_q, limit=12)
+                        # Ưu tiên cùng định dạng trước, sau đó đến các định dạng sách khác
+                        alt_sorted = sorted(
+                            alt_results,
+                            key=lambda r: (0 if r.format.lower() == initial_fmt else 1, -r.priority_score),
+                        )
+                        added_rescue = 0
+                        for alt in alt_sorted:
+                            for cand_u in [alt.download_url] + list(alt.mirror_urls):
+                                if cand_u and cand_u not in direct_urls:
+                                    direct_urls.append(cand_u)
+                                    added_rescue += 1
+                                    if added_rescue >= 6:
+                                        break
+                            if added_rescue >= 6:
+                                break
+                    except Exception as rescue_exc:
+                        logger.debug("Auto-rescue search failed for %s: %s", rescue_q, rescue_exc)
                 continue
 
     raise RuntimeError(
