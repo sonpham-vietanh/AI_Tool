@@ -6,6 +6,11 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+# Phông Unicode hỗ trợ tiếng Việt cho dịch PDF tại chỗ (Liberation Sans/Serif, tương đương Arial/Times)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends fonts-liberation2 \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 

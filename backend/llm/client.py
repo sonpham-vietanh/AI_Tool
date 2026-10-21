@@ -131,6 +131,14 @@ class LLMConfig(BaseModel):
             )
 
 
+def _strip_english_gloss(dst: str) -> str:
+    """Bỏ phần "(English term)" ở cuối bản dịch tiếng Việt trong glossary; giữ nguyên nếu cả cụm là ASCII (viết tắt)."""
+    m = re.search(r"\s*\(([^()]*)\)\s*$", dst or "")
+    if m and all(ord(ch) < 128 for ch in m.group(1)) and any(ord(ch) > 127 for ch in dst[: m.start()]):
+        return dst[: m.start()].strip()
+    return dst
+
+
 class TranslationLLMClient:
     """
     High-concurrency Multi-Key & Hybrid Multi-Provider LLM Translation Engine.
@@ -1296,6 +1304,8 @@ class TranslationLLMClient:
             if not isinstance(profile, dict):
                 profile = {}
             glossary = normalize_glossary(profile.get("glossary"))[:max_terms]
+            for item in glossary:  # "quan sát có trọng tâm (Focused Observation)" -> chỉ giữ phần tiếng Việt
+                item["dst"] = _strip_english_gloss(item["dst"])
             brief = format_book_brief(profile)
             if brief or glossary:
                 await self._emit_agent_event(

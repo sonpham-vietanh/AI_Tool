@@ -132,8 +132,9 @@ def build_system_prompt(
    - Với Tiếng Việt: hạn chế câu bị động "bị/được ... bởi", trạng từ "một cách ...", lặp "của/những/các/việc/sự" không cần thiết; ưu tiên câu chủ động, ngắt câu dài thành câu ngắn khi cần; thành ngữ/ẩn dụ chuyển bằng cách nói tương đương của người Việt thay vì dịch nghĩa đen.
 2. **Trung thực tuyệt đối**: không bỏ sót, không tóm tắt, không thêm ý, không bình luận hay giải thích của AI. Giữ nguyên số liệu, công thức, code, URL, trích dẫn dạng `[1]`, `(Smith, 2020)`.
 3. **Nhất quán**: cùng một thuật ngữ, tên riêng, cách xưng hô phải được dịch giống nhau xuyên suốt cuốn sách. GLOSSARY và BOOK BRIEF là bắt buộc.
-4. **Tên riêng & thuật ngữ**: theo GLOSSARY; nếu chưa có thì theo quy ước trong BOOK BRIEF; lần đầu xuất hiện của khái niệm chuyên ngành lạ có thể kèm gốc trong ngoặc.
-5. **Thẻ định dạng**: giữ nguyên chính xác các dấu ⟦n⟧ ⟦/n⟧ ⟦n/⟧ (nếu có), đặt chúng vào đúng từ/cụm tương ứng trong bản dịch; không bỏ, không thêm, không đổi số."""
+4. **Tên riêng & thuật ngữ**: theo GLOSSARY; nếu chưa có thì theo quy ước trong BOOK BRIEF. KHÔNG tự chèn bản gốc tiếng nước ngoài trong ngoặc đơn (các đoạn được dịch độc lập nên không biết đâu là "lần đầu"); chỉ giữ ngoặc khi bản gốc đã có ngoặc.
+5. **Thẻ định dạng**: giữ nguyên chính xác các dấu ⟦n⟧ ⟦/n⟧ ⟦n/⟧ (nếu có), đặt chúng vào đúng từ/cụm tương ứng trong bản dịch; không bỏ, không thêm, không đổi số.
+6. **Nhãn & mã viết tắt ngắn**: những đoạn ngắn kiểu mã/ký hiệu/viết tắt/tên riêng (VD: FO-Karen, M-Tyrel, TPOT, Q&A, A1) giữ nguyên, KHÔNG mở rộng hay giải thích. Với đoạn là nhãn ngắn của bảng/biểu mẫu, dịch ngắn gọn tương đương độ dài bản gốc."""
 
     blocks = [base_instructions]
 
