@@ -399,3 +399,14 @@ def test_public_without_login_job_override_cannot_redirect_key(env, monkeypatch)
 def test_local_mode_settings_not_locked(env):
     with TestClient(m.app, base_url="http://localhost:8088") as c:
         assert c.post("/api/settings", json={"concurrency": 5}).status_code == 200
+
+
+# ------------------------------------------------- book discovery endpoint
+def test_discover_endpoint(client, monkeypatch):
+    async def fake_discover(q, target_lang="vi", country="VN"):
+        return {"query": q, "target_lang": target_lang, "country": country, "works": [], "sources_ok": {}, "warnings": []}
+
+    monkeypatch.setattr(m, "discover_book", fake_discover)
+    r = client.get("/api/discover", params={"q": "Atomic Habits", "lang": "vi-VN"})
+    assert r.status_code == 200 and r.json()["ok"] is True and r.json()["target_lang"] == "vi"
+    assert client.get("/api/discover", params={"q": "x"}).status_code == 422  # quá ngắn

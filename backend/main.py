@@ -24,6 +24,7 @@ from .llm import LLMConfig, TranslationLLMClient, default_cache
 from .search import (
     BookSearchResult,
     auto_search_and_download,
+    discover_book,
     download_book,
     search_books,
 )
@@ -1128,6 +1129,17 @@ async def api_search_books(
         "count": len(results),
         "results": [r.model_dump() for r in results],
     }
+
+
+@app.get("/api/discover")
+async def api_discover_book(
+    q: str = Query(..., min_length=2, max_length=200, description="Tên sách / tác giả / ISBN"),
+    lang: str = Query("vi", max_length=8),
+    country: str = Query("VN", min_length=2, max_length=2),
+) -> Dict[str, Any]:
+    """Tra cứu THÔNG TIN sách (ấn bản, bản dịch, cách kiếm hợp pháp: mua/mượn/bản mở)."""
+    result = await discover_book(q.strip(), target_lang=lang.split("-")[0].lower(), country=country.upper())
+    return {"ok": True, **result}
 
 
 @app.post("/api/jobs/auto")

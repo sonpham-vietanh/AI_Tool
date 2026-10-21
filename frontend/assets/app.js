@@ -739,6 +739,108 @@
     }
   }
 
+  const AVAIL_KIND_LABELS = {
+    public_domain: "Miễn phí (public domain)",
+    borrow: "Mượn miễn phí",
+    buy_ebook: "Mua bản điện tử",
+    buy_print: "Mua sách in",
+    preview: "Đọc thử",
+    library: "Thư viện",
+  };
+
+  function safeUrl(u) {
+    return /^https?:\/\//i.test(String(u || "")) ? String(u) : "#";
+  }
+
+  function renderBookInfo(data) {
+    const panel = el("bookInfoPanel");
+    if (!panel) return;
+    const works = data.works || [];
+    const warn = (data.warnings || []).length
+      ? `<div class="bookinfo-warn">Một số nguồn không phản hồi: ${escapeHtml((data.warnings || []).join(", "))}. Kết quả có thể thiếu.</div>`
+      : "";
+    if (!works.length) {
+      panel.innerHTML = `<div class="bookinfo-empty">Không tìm thấy thông tin cho <strong>"${escapeHtml(data.query || "")}"</strong>. Thử tên gốc tiếng Anh, tên tác giả hoặc ISBN.</div>${warn}`;
+      return;
+    }
+    panel.innerHTML =
+      `<div class="bookinfo-head"><strong>Thông tin sách</strong><button type="button" id="btnCloseBookInfo" class="btn-xs">Đóng</button></div>` +
+      works
+        .map((w) => {
+          const cover = w.cover_url
+            ? `<img src="${escapeHtml(safeUrl(w.cover_url))}" alt="" class="bookinfo-cover" onerror="this.style.display='none'" />`
+            : "";
+          const trans = (w.translations || [])
+            .map(
+              (t) =>
+                `<li>${escapeHtml(t.title)}${t.publisher ? " · " + escapeHtml(t.publisher) : ""}${t.year ? " · " + escapeHtml(String(t.year)) : ""}</li>`
+            )
+            .join("");
+          const transBlock = trans
+            ? `<div class="bookinfo-sec"><span class="bookinfo-tag ok">Đã có bản dịch</span><ul>${trans}</ul></div>`
+            : `<div class="bookinfo-sec"><span class="bookinfo-tag">Chưa thấy bản dịch trong dữ liệu (có thể dữ liệu thiếu)</span></div>`;
+          const direct = (w.availability || []).filter((a) => a.type === "direct");
+          const links = (w.availability || []).filter((a) => a.type === "search_link");
+          const directHtml = direct.length
+            ? direct
+                .map(
+                  (a) =>
+                    `<li><span class="bookinfo-kind">${escapeHtml(AVAIL_KIND_LABELS[a.kind] || a.kind)}</span> <a href="${escapeHtml(safeUrl(a.url))}" target="_blank" rel="noopener noreferrer">${escapeHtml(a.label)}</a>${a.price ? " · " + escapeHtml(a.price) : ""}</li>`
+                )
+                .join("")
+            : `<li class="text-muted">Chưa thấy nguồn mua/mượn trực tiếp. Dùng các link tìm kiếm bên dưới.</li>`;
+          const linksHtml = links
+            .map(
+              (a) =>
+                `<a class="bookinfo-chip" href="${escapeHtml(safeUrl(a.url))}" target="_blank" rel="noopener noreferrer">${escapeHtml(a.label)}</a>`
+            )
+            .join("");
+          const meta =
+            escapeHtml((w.authors || []).slice(0, 3).join(", ")) +
+            (w.first_publish_year ? " · " + escapeHtml(String(w.first_publish_year)) : "") +
+            (w.edition_count ? " · " + escapeHtml(String(w.edition_count)) + " ấn bản" : "") +
+            (w.isbn13 ? " · ISBN " + escapeHtml(w.isbn13) : "");
+          return `<div class="bookinfo-card">
+            ${cover}
+            <div class="bookinfo-body">
+              <div class="bookinfo-title">${escapeHtml(w.title)}</div>
+              <div class="bookinfo-meta">${meta}</div>
+              ${transBlock}
+              <div class="bookinfo-sec"><strong>Kiếm hợp pháp ở đâu</strong><ul>${directHtml}</ul>${linksHtml ? `<div class="bookinfo-chips">${linksHtml}</div>` : ""}</div>
+            </div>
+          </div>`;
+        })
+        .join("") +
+      warn;
+    el("btnCloseBookInfo")?.addEventListener("click", () => panel.classList.add("hidden"));
+  }
+
+  async function discoverBookInfo() {
+    const q = (el("bookQueryInput")?.value || "").trim();
+    if (q.length < 2) {
+      showToast("Hãy nhập tên sách, tác giả hoặc ISBN để tra cứu.", "warning");
+      return;
+    }
+    const panel = el("bookInfoPanel");
+    const btn = el("btnBookInfo");
+    if (btn) btn.disabled = true;
+    if (panel) {
+      panel.classList.remove("hidden");
+      panel.innerHTML = `<div class="loading-inline"><div class="spinner-sm"></div><span>Đang tra cứu thông tin sách...</span></div>`;
+    }
+    try {
+      const lang = el("targetLangSelect")?.value || "vi";
+      const res = await fetch(`/api/discover?q=${encodeURIComponent(q)}&lang=${encodeURIComponent(lang)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Không tra cứu được.");
+      renderBookInfo(data);
+    } catch (err) {
+      if (panel) panel.innerHTML = `<div class="bookinfo-empty">Lỗi: ${escapeHtml(err.message || String(err))}</div>`;
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
   function applyEditionFilter(filterType) {
     currentEditionFilter = filterType || "all";
     document.querySelectorAll("#editionFilterPills [data-fmt-filter]").forEach((b) => {
@@ -1994,6 +2096,7 @@
     // Hero Main Buttons
     el("btnOneClickAuto")?.addEventListener("click", startOneClickAutoJob);
     el("btnSearchAndPick")?.addEventListener("click", searchAndShowVersions);
+    el("btnBookInfo")?.addEventListener("click", discoverBookInfo);
     el("closeSearchResultsBtn")?.addEventListener("click", () => {
       el("searchResultsSection")?.classList.add("hidden");
     });

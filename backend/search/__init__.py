@@ -1,3 +1,4 @@
+from .discovery import discover_book
 from .models import BookSearchResult, compute_priority_score, score_candidate
 from .providers import (
     search_annas_archive,
@@ -15,6 +16,7 @@ from .downloader import (
 )
 
 __all__ = [
+    "discover_book",
     "BookSearchResult",
     "compute_priority_score",
     "score_candidate",
