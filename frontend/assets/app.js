@@ -187,7 +187,113 @@
       item.style.opacity = "0";
       item.style.transform = "translateY(8px)";
       setTimeout(() => item.remove(), 260);
-    }, 4200);
+    }, Math.min(20000, Math.max(4200, String(message || "").length * 70)));
+  }
+
+  // Đọc JSON an toàn: lỗi proxy/HTML không làm mất thông báo lỗi thật.
+  async function readJsonSafe(res) {
+    try {
+      return await res.json();
+    } catch (_) {
+      return { ok: false, detail: `Máy chủ trả về lỗi HTTP ${res.status}.` };
+    }
+  }
+
+  // FastAPI: detail có thể là chuỗi hoặc mảng lỗi validation.
+  function detailText(data) {
+    const d = data && data.detail;
+    if (!d) return "";
+    if (typeof d === "string") return d;
+    if (Array.isArray(d)) return d.map((x) => (x && x.msg) || String(x)).join("; ");
+    return String(d.message || JSON.stringify(d));
+  }
+
+  // ---- LLM health banner ----
+  function renderLlmBanner(llm) {
+    const box = el("llmBanner");
+    if (!box) return;
+    if (!llm || typeof llm !== "object") {
+      box.classList.add("hidden");
+      return;
+    }
+    const provider = String(llm.provider || "");
+    let kind = "";
+    let html = "";
+    if (llm.ready === false) {
+      kind = "danger";
+      html =
+        `<div class="llm-banner-title">⛔ Chưa cấu hình AI — bản dịch sẽ bị lỗi hoặc kém chất lượng</div>` +
+        (llm.message ? `<div class="llm-banner-msg">${escapeHtml(llm.message)}</div>` : "") +
+        `<div class="llm-banner-help">Cách khắc phục: chạy máy cá nhân thì mở <strong>Cài đặt</strong> và nhập API key; ` +
+        `chạy trên server thì đặt biến môi trường <code>BTH_API_KEY</code>, <code>BTH_BASE_URL</code>, <code>BTH_MODEL</code> trong bảng điều khiển hosting rồi khởi động lại.</div>`;
+    } else if (llm.ready === true && provider === "google_free") {
+      kind = "warning";
+      html = `<div class="llm-banner-title">⚠ Đang dùng Google Translate miễn phí (chất lượng thấp)</div>`;
+    }
+    const sig = kind + "|" + html;
+    if (!kind) {
+      box.classList.add("hidden");
+      return;
+    }
+    let dismissed = "";
+    try {
+      dismissed = sessionStorage.getItem("bth_llm_banner_dismissed") || "";
+    } catch (_) {}
+    if (dismissed === sig && kind === "warning") {
+      box.classList.add("hidden");
+      return;
+    }
+    box.className = `llm-banner llm-banner-${kind}`;
+    box.innerHTML =
+      `<div class="llm-banner-body">${html}</div>` +
+      (kind === "warning"
+        ? `<button type="button" class="llm-banner-close" title="Ẩn thông báo này">✕</button>`
+        : "");
+    box.querySelector(".llm-banner-close")?.addEventListener("click", () => {
+      try {
+        sessionStorage.setItem("bth_llm_banner_dismissed", sig);
+      } catch (_) {}
+      box.classList.add("hidden");
+    });
+  }
+
+  async function checkLlmHealth() {
+    try {
+      const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+      const t = ctrl ? setTimeout(() => ctrl.abort(), 8000) : null;
+      const res = await fetch("/api/health", ctrl ? { signal: ctrl.signal } : undefined);
+      if (t) clearTimeout(t);
+      if (!res.ok) throw new Error("health " + res.status);
+      const data = await res.json();
+      renderLlmBanner(data && data.llm);
+    } catch (_) {
+      renderLlmBanner(null);
+    }
+  }
+
+  // Chip + cảnh báo chất lượng của một job (an toàn với dữ liệu cũ).
+  function jobEngineChip(job) {
+    const prov = String(job.effective_provider || "");
+    if (!prov) return "";
+    if (prov === "google_free") {
+      return `<span class="engine-chip engine-chip-warn" title="Đang dùng Google Translate miễn phí">⚠ Google Translate (kém)</span>`;
+    }
+    const model = job.effective_model || prov;
+    return `<span class="engine-chip" title="Model đang dịch thực tế">AI: ${escapeHtml(model)}</span>`;
+  }
+
+  function jobUntranslated(job) {
+    const q = job.quality || {};
+    const n = Number(q.still_untranslated) || 0;
+    return { n, pct: Number(q.percent_untranslated) || 0 };
+  }
+
+  function jobHasWarning(job) {
+    return jobUntranslated(job).n > 0 || (Array.isArray(job.warnings) && job.warnings.length > 0) || job.effective_provider === "google_free";
+  }
+
+  function normSeg(s) {
+    return String(s || "").replace(/\s+/g, " ").trim().toLowerCase();
   }
 
   function escapeHtml(str) {
@@ -657,9 +763,9 @@
           config,
         }),
       });
-      const data = await res.json();
+      const data = await readJsonSafe(res);
       if (!res.ok || !data.ok) {
-        throw new Error(data.detail || data.message || "Không thể tạo tiến trình dịch tự động.");
+        throw new Error(detailText(data) || data.message || "Không thể tạo tiến trình dịch tự động.");
       }
 
       activeJobId = data.job_id;
@@ -968,9 +1074,9 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ book: bookItem, config }),
       });
-      const data = await res.json();
+      const data = await readJsonSafe(res);
       if (!res.ok || !data.ok) {
-        throw new Error(data.detail || "Không thể khởi tạo tiến trình dịch.");
+        throw new Error(detailText(data) || "Không thể khởi tạo tiến trình dịch.");
       }
 
       activeJobId = data.job_id;
@@ -1025,9 +1131,9 @@
         method: "POST",
         body: formData,
       });
-      const data = await res.json();
+      const data = await readJsonSafe(res);
       if (!res.ok || !data.ok) {
-        throw new Error(data.detail || "Không thể tải file lên để dịch.");
+        throw new Error(detailText(data) || "Không thể tải file lên để dịch.");
       }
 
       clearSelectedFile();
@@ -1114,9 +1220,10 @@
           <div class="job-card-item ${isActive ? "active" : ""}" data-job-id="${escapeHtml(job.id)}">
             <div class="job-card-top">
               <span class="fmt-badge ${fmtClass}">${escapeHtml(fmt)}</span>
-              <span class="job-status-badge ${stMeta.cls}">${escapeHtml(stMeta.text)}</span>
+              <span class="job-status-badge ${stMeta.cls}${job.status === "completed" && jobHasWarning(job) ? " status-warn" : ""}">${escapeHtml(stMeta.text)}${job.status === "completed" && jobHasWarning(job) ? " ⚠" : ""}</span>
             </div>
             <div class="job-card-title" title="${escapeHtml(job.title)}">${escapeHtml(job.title)}</div>
+            ${jobEngineChip(job) || jobUntranslated(job).n > 0 ? `<div class="job-card-chips">${jobEngineChip(job)}${jobUntranslated(job).n > 0 ? `<span class="engine-chip engine-chip-warn">⚠ ${jobUntranslated(job).n} đoạn chưa dịch</span>` : ""}</div>` : ""}
             <div class="job-card-meta">
               <span>${escapeHtml(job.target_lang || "Tiếng Việt")}</span>
               <strong>${pct}%</strong>
@@ -1160,8 +1267,25 @@
     const stMeta = STATUS_LABELS[job.status] || STATUS_LABELS.queued;
     const stBadge = el("activeJobStatusBadge");
     if (stBadge) {
-      stBadge.className = `job-status-badge ${stMeta.cls}`;
-      stBadge.textContent = stMeta.text;
+      const warnDone = job.status === "completed" && jobHasWarning(job);
+      stBadge.className = `job-status-badge ${stMeta.cls}${warnDone ? " status-warn" : ""}`;
+      stBadge.textContent = warnDone ? stMeta.text + " ⚠" : stMeta.text;
+    }
+
+    const qBox = el("activeJobQuality");
+    if (qBox) {
+      const uq = jobUntranslated(job);
+      const warns = Array.isArray(job.warnings) ? job.warnings : [];
+      let html = jobEngineChip(job);
+      if (uq.n > 0) {
+        html += `<span class="engine-chip engine-chip-warn">⚠ ${uq.n} đoạn chưa dịch (${uq.pct.toFixed(1).replace(/\.0$/, "")}%)</span>`;
+      }
+      if (warns.length) {
+        html += `<ul class="job-warn-list">${warns.map((w) => `<li>${escapeHtml(w)}</li>`).join("")}</ul>`;
+      }
+      qBox.innerHTML = html;
+      qBox.classList.toggle("hidden", !html);
+      qBox.classList.toggle("has-warn", uq.n > 0 || warns.length > 0 || job.effective_provider === "google_free");
     }
 
     if (el("activeJobLangBadge")) {
@@ -1350,6 +1474,10 @@
       stream.innerHTML = previews
         .map((p, i) => {
           const segIndex = p.index || i + 1;
+          const untranslated = normSeg(p.src).length > 3 && normSeg(p.src) === normSeg(p.dst);
+          const warnBadge = untranslated
+            ? `<span class="preview-untranslated-badge" title="Bản dịch giống hệt bản gốc">⚠ chưa dịch</span>`
+            : "";
           const editedHtml =
             p.was_edited && p.draft
               ? `
@@ -1364,7 +1492,7 @@
               : `<div class="preview-dst-text">${escapeHtml(p.dst)}</div>`;
 
           return `
-          <div class="preview-pair-card" data-preview-idx="${i}" data-seg-index="${segIndex}">
+          <div class="preview-pair-card${untranslated ? " is-untranslated" : ""}" data-preview-idx="${i}" data-seg-index="${segIndex}">
             <div class="preview-col-source">
               <div class="preview-top-bar">
                 <span class="preview-chunk-badge">#Đoạn ${segIndex} · Gốc</span>
@@ -1374,6 +1502,7 @@
             <div class="preview-col-target">
               <div class="preview-top-bar">
                 <span class="preview-chunk-badge">#Đoạn ${segIndex} · Xuất bản</span>
+                ${warnBadge}
                 <div class="preview-card-actions">
                   <button type="button" class="btn-xs btn-inline-edit" data-preview-idx="${i}" title="Sửa trực tiếp đoạn dịch này">✏️ Sửa tay</button>
                   <button type="button" class="btn-xs btn-repolish-seg" data-preview-idx="${i}" title="Yêu cầu Agent 4 (Tổng Biên Tập) chuốt lại đoạn văn này">✨ Agent 4 chuốt lại</button>
@@ -1689,8 +1818,8 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text, config }),
       });
-      const data = await res.json();
-      if (!res.ok || !data.ok) throw new Error(data.detail || "Lỗi khi dịch nhanh văn bản.");
+      const data = await readJsonSafe(res);
+      if (!res.ok || !data.ok) throw new Error(detailText(data) || "Lỗi khi dịch nhanh văn bản.");
 
       if (metaBox) {
         metaBox.textContent = `✅ Hoàn tất ${data.paragraphs_count || 1} đoạn trong ${data.elapsed_seconds}s (${data.translator_model}${data.editor_model ? " ➔ " + data.editor_model : ""})`;
@@ -2294,6 +2423,8 @@
 
   async function init() {
     bindEvents();
+    checkLlmHealth();
+    setInterval(checkLlmHealth, 60000);
     await loadSettings();
     await fetchJobsList();
     pollTimer = setInterval(fetchJobsList, 1500);

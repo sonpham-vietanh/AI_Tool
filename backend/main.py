@@ -244,13 +244,61 @@ def _ensure_llm_configured(cfg: LLMConfig) -> None:
         raise HTTPException(
             status_code=400,
             detail=(
-                f"Chưa cấu hình API key cho nhà cung cấp '{cfg.provider}', nên không thể dịch bằng AI "
-                "(nếu cứ chạy, bản dịch sẽ rơi về Google Translate miễn phí rất kém). "
-                "Máy cá nhân: nhập key trong Cài đặt. Server công khai: đặt biến môi trường BTH_API_KEY "
-                "(và BTH_BASE_URL, BTH_MODEL nếu dùng gateway) rồi Redeploy. Muốn dùng Google Translate miễn phí "
-                "thì chọn nhà cung cấp 'google_free' (gtx) một cách chủ động."
+                f"Chưa có API key cho '{cfg.provider}' nên chưa dịch bằng AI được. "
+                "Server: đặt BTH_API_KEY (kèm BTH_BASE_URL, BTH_MODEL nếu dùng gateway) trong bảng điều khiển rồi Redeploy. "
+                "Máy cá nhân: nhập key ở Cài đặt."
             ),
         )
+
+
+def _llm_effective_info(cfg: LLMConfig) -> Dict[str, Any]:
+    """Nhà cung cấp/model THỰC SỰ được dùng (sau khi xét key) — không bao giờ chứa key."""
+    try:
+        client = TranslationLLMClient(config=cfg, cache=default_cache)
+        provider = client._effective_provider()
+        model = client._effective_model()
+    except Exception:  # pragma: no cover - defensive
+        provider, model = cfg.provider, cfg.model
+    return {"provider": provider, "model": model}
+
+
+def _empty_quality() -> Dict[str, Any]:
+    return {
+        "total": 0,
+        "untranslated_found": 0,
+        "retried_fixed": 0,
+        "still_untranslated": 0,
+        "percent_untranslated": 0.0,
+    }
+
+
+def _update_job_quality(job: Dict[str, Any], llm_client: Any) -> Dict[str, Any]:
+    """Chép llm_client.quality_stats vào job["quality"] và cập nhật cảnh báo (idempotent)."""
+    stats = getattr(llm_client, "quality_stats", None)
+    q = _empty_quality()
+    if isinstance(stats, dict):
+        for k in ("total", "untranslated_found", "retried_fixed", "still_untranslated"):
+            try:
+                q[k] = int(stats.get(k) or 0)
+            except (TypeError, ValueError):
+                q[k] = 0
+    q["percent_untranslated"] = (
+        round(q["still_untranslated"] / q["total"] * 100.0, 1) if q["total"] > 0 else 0.0
+    )
+    job["quality"] = q
+
+    warnings: List[str] = []
+    if job.get("effective_provider") == "google_free":
+        warnings.append(
+            "Đang dùng Google Translate miễn phí (chất lượng thấp, có thể trả nguyên văn)"
+        )
+    if q["still_untranslated"] > 0:
+        warnings.append(
+            f"⚠ {q['still_untranslated']}/{q['total']} đoạn chưa dịch được ({q['percent_untranslated']}%) — "
+            "kiểm tra API key/model rồi bấm 'Tiếp tục' hoặc dịch lại"
+        )
+    job["warnings"] = warnings
+    return q
 
 
 def _cfg_from_job(job: Dict[str, Any], **updates: Any) -> LLMConfig:
@@ -354,6 +402,10 @@ def _create_job_record(
         "enable_editor_agent": config.enable_editor_agent,
         "provider": config.provider,
         "model": config.model,
+        "effective_provider": _llm_effective_info(config)["provider"],
+        "effective_model": _llm_effective_info(config)["model"],
+        "quality": _empty_quality(),
+        "warnings": [],
         "agent_models": {
             "glossary": config.agent_glossary_model or config.model,
             "translator": config.agent_translator_model or config.model,
@@ -416,6 +468,11 @@ async def _execute_translation_pipeline(
     llm_client = TranslationLLMClient(
         config=config, cache=default_cache, agent_event_cb=on_agent_event
     )
+    # Mỗi lượt chạy (kể cả resume) bắt đầu với chất lượng/cảnh báo sạch.
+    _eff = _llm_effective_info(config)
+    job["effective_provider"] = _eff["provider"]
+    job["effective_model"] = _eff["model"]
+    _update_job_quality(job, None)
 
     try:
         # =====================================================================
@@ -631,6 +688,7 @@ async def _execute_translation_pipeline(
             job["done_chunks"] = int(done_items)
             job["learned_terms"] = list(getattr(llm_client, "learned_terms", []) or [])[:200]
             job["total_chunks"] = int(total_items)
+            _update_job_quality(job, llm_client)
             if total_items > 0:
                 ratio = min(1.0, max(0.0, done_items / total_items))
                 # Map translation + editing progress from 22% to 92%
@@ -910,6 +968,10 @@ async def _execute_translation_pipeline(
         job["message"] = (
             f"Hệ thống 5 Agent đã hoàn tất xuất bản '{job['title']}' ({job['format'].upper()}) sang {config.target_lang} trong {elapsed_total}s!"
         )
+        _final_q = _update_job_quality(job, llm_client)
+        if _final_q["still_untranslated"] > 0 and _final_q["percent_untranslated"] >= 15:
+            _qwarn = next((w for w in job["warnings"] if w.startswith("⚠")), "")
+            job["message"] = f"{_qwarn} | {job['message']}" if _qwarn else job["message"]
         _append_agent_log(
             job,
             5,
@@ -1080,8 +1142,27 @@ class FromSearchJobRequest(BaseModel):
 
 @app.get("/api/health")
 async def api_health() -> Dict[str, Any]:
+    info = _llm_effective_info(GLOBAL_SETTINGS)
+    ready, hint = True, ""
+    try:
+        _ensure_llm_configured(GLOBAL_SETTINGS)
+    except HTTPException:
+        ready = False
+        hint = (
+            f"Chưa cấu hình API key cho '{GLOBAL_SETTINGS.provider}': dịch sẽ bị từ chối. "
+            "Đặt BTH_API_KEY (và BTH_BASE_URL, BTH_MODEL nếu cần) rồi Redeploy, hoặc nhập key trong Cài đặt."
+        )
+    if ready and info["provider"] == "google_free":
+        hint = "Đang dùng Google Translate miễn phí: chất lượng thấp, có thể trả nguyên văn."
     return {
         "ok": True,
+        "llm": {
+            "ready": ready,
+            "provider": info["provider"],
+            "configured_provider": GLOBAL_SETTINGS.provider,
+            "model": info["model"],
+            "message": hint,
+        },
         "service": "AI Book Translator Hub",
         "cache_stats": default_cache.get_stats(),
         "active_jobs": sum(

@@ -22,6 +22,7 @@ from .glossary import (
     normalize_glossary,
     parse_llm_glossary_json,
 )
+from .quality import looks_untranslated
 from .prompts import (
     build_batch_user_prompt,
     build_book_profile_prompt,
@@ -170,6 +171,99 @@ class TranslationLLMClient:
         self._learned_keys: set = set()
         self._learn_lock = threading.Lock()
         self.max_learned_terms = 200
+        # Quality accounting (untranslated-segment detection / repair); see `quality_stats`.
+        self._stats_lock = threading.Lock()
+        self._qstats: Dict[str, int] = {
+            "total": 0, "untranslated_found": 0, "retried_fixed": 0, "still_untranslated": 0,
+        }
+        self._retries_used = 0
+        self.max_retries_total = 200
+        self.max_retry_fraction = 0.25
+
+    # ------------------------------------------------------------------ quality control
+    @property
+    def quality_stats(self) -> Dict[str, int]:
+        """Snapshot: total segments processed, untranslated found, fixed by retry, still untranslated."""
+        with self._stats_lock:
+            return dict(self._qstats)
+
+    def _qs_add(self, **deltas: int) -> None:
+        with self._stats_lock:
+            for k, v in deltas.items():
+                self._qstats[k] += v
+
+    def _is_untranslated(self, src: str, dst: str) -> bool:
+        try:
+            return looks_untranslated(src, dst, self.config.target_lang_code or "vi")
+        except Exception:  # a diagnostic must never break translation
+            return False
+
+    def _reserve_retries(self, wanted: int) -> int:
+        """How many retries we may still spend: <= 25% of segments seen (min 4) and <= 200 overall."""
+        with self._stats_lock:
+            cap = min(
+                self.max_retries_total,
+                max(4, int(self._qstats["total"] * self.max_retry_fraction)),
+            )
+            n = max(0, min(wanted, cap - self._retries_used))
+            self._retries_used += n
+            return n
+
+    async def _retry_untranslated(
+        self,
+        items: List[tuple],
+        context: str,
+        glossary: Optional[List[Dict[str, str]]],
+        provider: str,
+        cache_model_key: str,
+        model_override: Optional[str],
+        retry: bool = True,
+    ) -> Dict[int, str]:
+        """
+        `items`: (key, src, dst, hint) for segments flagged as untranslated (counted as found here).
+        Retries each ONCE individually (never recurses). Returns {key: new_dst} for the ones fixed
+        (and cached). Updates quality counters: found = fixed + still.
+        """
+        fixed: Dict[int, str] = {}
+        if not items:
+            return fixed
+        self._qs_add(untranslated_found=len(items))
+        allowed = 0
+        if retry and provider != "google_free":
+            allowed = self._reserve_retries(len(items))
+        todo = items[:allowed]
+        target_lang = self.config.target_lang
+        effective_prompt = resolve_genre_prompt(self.config.genre_preset, self.config.custom_prompt)
+        warning = (
+            "CẢNH BÁO: lần dịch trước của đoạn này KHÔNG được dịch (còn nguyên ngôn ngữ gốc). "
+            f"Bản trả lời BẮT BUỘC phải bằng {target_lang}; tuyệt đối không chép lại văn bản gốc."
+            " (The previous answer was not translated; the output MUST be in the target language.)"
+        )
+
+        async def one(key: int, src: str, hint: str) -> None:
+            try:
+                ctx = "\n".join(x for x in (context, f"(Vai trò/vị trí của đoạn: {hint})" if hint else "", warning) if x)
+                sys_prompt = build_system_prompt(
+                    target_lang=target_lang,
+                    custom_prompt=effective_prompt,
+                    glossary=filter_glossary_for_text(src, self._merged_glossary(glossary)),
+                    context=ctx,
+                    book_brief=self.book_brief,
+                    is_batch=False,
+                )
+                async with self.semaphore:
+                    out = await self._call_llm_with_rotation(sys_prompt, src, model_override=model_override)
+                out = re.sub(r"^\[\[#\d+\]\]\s*", "", out or "").strip()
+                if out and not self._is_untranslated(src, out):
+                    fixed[key] = out
+                    self.cache.set(src, out, target_lang, provider, cache_model_key)
+            except Exception as exc:
+                logger.warning("Untranslated-segment retry failed: %s", exc)
+
+        if todo:
+            await asyncio.gather(*[one(k, s, h) for k, s, _d, h in todo])
+        self._qs_add(retried_fixed=len(fixed), still_untranslated=len(items) - len(fixed))
+        return fixed
 
     async def _emit_agent_event(self, agent_id: int, agent_name: str, action: str, detail: str = "", model: str = "") -> None:
         if self.agent_event_cb:
@@ -840,8 +934,16 @@ class TranslationLLMClient:
         # 1. Check SQLite Cache
         cached = self.cache.get(text, target_lang, provider, cache_model_key)
         if cached:
-            return cached
+            if not self._is_untranslated(text, cached):
+                self._qs_add(total=1)
+                return cached
+            if provider == "google_free":  # nothing better to try; report honestly
+                self._qs_add(total=1, untranslated_found=1, still_untranslated=1)
+                return cached
+            # poisoned entry (e.g. earlier Google-fallback run): re-translate and overwrite below
 
+        self._qs_add(total=1)
+        fell_back = False
         matched_glossary = filter_glossary_for_text(text, self._merged_glossary(glossary))
 
         async with self.semaphore:
@@ -892,14 +994,29 @@ class TranslationLLMClient:
                     )
                     provider = "google_free"
                     cache_model_key = "gtx-free"
+                    fell_back = True
                 else:
                     raise
 
         if matched_glossary and not self.config.enable_editor_agent:
             self._warn_missing_dst(text, translated, matched_glossary)
 
-        untranslated = provider == "google_free" and translated.strip() == text.strip()
-        if translated and translated.strip() and not untranslated:
+        untranslated = self._is_untranslated(text, translated)
+        if not untranslated and provider == "google_free" and translated.strip() == text.strip():
+            return translated  # unchanged (maybe legitimately, maybe a failed call): don't cache, don't count
+        if untranslated:
+            # never cache it; retry once through the LLM (not after an LLM failure / explicit google_free)
+            fixed = await self._retry_untranslated(
+                [(0, text, translated, "")],
+                context,
+                glossary,
+                provider,
+                cache_model_key,
+                tr_model_override,
+                retry=not fell_back,
+            )
+            return fixed.get(0, translated)
+        if translated and translated.strip():
             self.cache.set(text, translated, target_lang, provider, cache_model_key)
 
         return translated
@@ -1073,7 +1190,14 @@ class TranslationLLMClient:
                 results[i] = txt
                 continue
             cached = self.cache.get(txt, target_lang, provider, cache_model_key)
+            if cached is not None and self._is_untranslated(txt, cached):
+                if provider == "google_free":
+                    self._qs_add(total=1, untranslated_found=1, still_untranslated=1)
+                    results[i] = cached
+                    continue
+                cached = None  # poisoned cache entry: treat as a miss, it gets overwritten
             if cached is not None:
+                self._qs_add(total=1)
                 results[i] = cached
             else:
                 uncached_indices.append(i)
@@ -1173,22 +1297,38 @@ class TranslationLLMClient:
             fallback_outputs = await asyncio.gather(
                 *[self._translate_google_free_raw(t) for t in uncached_texts]
             )
+            self._qs_add(total=len(uncached_texts))
             for idx_in_batch, orig_idx in enumerate(uncached_indices):
                 results[orig_idx] = self._apply_glossary_post_replacement(
                     fallback_outputs[idx_in_batch], uncached_texts[idx_in_batch], matched_glossary
                 )
+                # fallback output is never cached; report honestly (no retry: the LLM just failed)
+                if self._is_untranslated(uncached_texts[idx_in_batch], results[orig_idx]):
+                    self._qs_add(untranslated_found=1, still_untranslated=1)
             return [r if r is not None else "" for r in results]
 
         if parsed_segments and len(parsed_segments) == len(uncached_texts):
             self._consecutive_batch_failures = 0
+            self._qs_add(total=len(uncached_texts))
             cache_pairs: List[tuple[str, str]] = []
+            flagged: List[tuple] = []
             for idx_in_batch, orig_idx in enumerate(uncached_indices):
                 seg_dst = parsed_segments[idx_in_batch]
                 if matched_glossary and not self.config.enable_editor_agent:
                     self._warn_missing_dst(uncached_texts[idx_in_batch], seg_dst, matched_glossary)
                 results[orig_idx] = seg_dst
-                cache_pairs.append((uncached_texts[idx_in_batch], seg_dst))
+                if self._is_untranslated(uncached_texts[idx_in_batch], seg_dst):
+                    flagged.append((orig_idx, uncached_texts[idx_in_batch], seg_dst, uncached_hints[idx_in_batch]))
+                else:
+                    cache_pairs.append((uncached_texts[idx_in_batch], seg_dst))
             self.cache.set_many(cache_pairs, target_lang, provider, cache_model_key)
+            if flagged:
+                fixed = await self._retry_untranslated(
+                    flagged, context, glossary, provider, cache_model_key, tr_model_override,
+                    retry=provider != "google_free",
+                )
+                for orig_idx, new_dst in fixed.items():
+                    results[orig_idx] = new_dst
         else:
             # Marker lệch / output bị cắt: chia đôi batch rồi dịch lại (ít lượt gọi hơn nhiều so với từng đoạn)
             logger.info(
