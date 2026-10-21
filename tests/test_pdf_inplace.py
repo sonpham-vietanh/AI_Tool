@@ -242,3 +242,33 @@ def test_identical_strings_are_translated_once_and_consistently(tmp_path, make_c
     assert sent.count("Running header text") == 1  # gửi LLM đúng một lần
     out = fitz.open(res["mono_pdf"])
     assert all("VI(Running header text)" in page_text(pg) for pg in out)  # nhưng hiện ở cả 3 trang
+
+
+def test_role_hints_reach_the_model_and_markers_stay_parseable(tmp_path, make_client):
+    _font_or_skip()
+
+    def build(p):
+        p.draw_rect(fitz.Rect(20, 20, 380, 60), color=None, fill=NAVY)
+        p.insert_text((30, 45), "Guide Title", fontname="hebo", fontsize=24, color=(1, 1, 1))
+        for i in range(3):
+            p.insert_text((40, 120 + i * 40), "Body text paragraph number %d here." % i, fontname="helv", fontsize=11)
+
+    src = make_pdf(tmp_path / "hints.pdf", build)
+    client = make_client()
+    res = run(translate_pdf_file(src, str(tmp_path / "out"), "hints", client))
+    sent = " ".join(c[1] for c in client.calls)
+    assert "VAI TRÒ/VỊ TRÍ" in sent and "tiêu đề cỡ lớn" in sent and "trang 1" in sent
+    out = page_text(fitz.open(res["mono_pdf"])[0])
+    assert "VI(Guide Title)" in out and "VAI TRÒ" not in out  # phần ngữ cảnh không lọt vào bản dịch
+
+
+def test_free_form_brief_is_rendered_and_old_profile_format_still_works():
+    from backend.llm.prompts import format_book_brief
+
+    brief = format_book_brief(
+        {"document_type": "hợp đồng dịch vụ", "understanding": "Hợp đồng giữa hai công ty.",
+         "translator_notes": "Dịch 'shall' là 'phải'. Giữ tên pháp nhân.", "do_not_translate": ["Northwind Traders, Inc."]}
+    )
+    assert "Loại tài liệu: hợp đồng dịch vụ" in brief and "'shall' là 'phải'" in brief and "Northwind" in brief
+    legacy = format_book_brief({"genre": "kinh doanh", "style_rules": ["ngắn gọn"], "policies": {"organization_names": "giữ"}})
+    assert "kinh doanh" in legacy and "ngắn gọn" in legacy and "organization_names: giữ" in legacy

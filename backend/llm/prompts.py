@@ -182,15 +182,25 @@ def build_system_prompt(
     return "\n\n".join(blocks)
 
 
-def build_batch_user_prompt(texts: List[str]) -> str:
+def build_batch_user_prompt(texts: List[str], hints: Optional[List[str]] = None) -> str:
     """
     Formats a list of text segments into indexed markers [[#0]], [[#1]], ...
+    `hints` (tùy chọn): vai trò/vị trí của từng đoạn trong trang (máy suy ra từ bố cục) để AI tự hiểu ngữ cảnh.
     """
     parts = []
     for idx, text in enumerate(texts):
         clean_text = text.strip()
         parts.append(f"[[#{idx}]]\n{clean_text}")
-    return "\n\n".join(parts)
+    body = "\n\n".join(parts)
+    notes = [f"#{i}: {h}" for i, h in enumerate(hints or []) if h]
+    if not notes:
+        return body
+    return (
+        "[VAI TRÒ/VỊ TRÍ CÁC ĐOẠN TRONG TRANG - chỉ để bạn hiểu ngữ cảnh khi dịch; KHÔNG dịch và KHÔNG chép lại phần này]\n"
+        + "\n".join(notes)
+        + "\n\n[CÁC ĐOẠN CẦN DỊCH]\n"
+        + body
+    )
 
 
 def build_glossary_extraction_prompt(
@@ -224,15 +234,15 @@ def build_editor_system_prompt(
     System prompt for Agent 4: Chief Editor & Literary Critic Agent.
     Reviews draft translations against source text and polishes them to publication quality.
     """
-    base = f"""Bạn là **Agent 4: Tổng Biên Tập & Hiệu Đính Xuất Bản (Chief Editor & Critic Agent)** cho sách dịch sang {target_lang}.
+    base = f"""Bạn là biên tập viên cao tay, hiệu đính bản dịch sang {target_lang}. Bạn nhận từng đoạn gồm **SOURCE** (gốc) và **DRAFT** (bản dịch nháp) và trả về bản dịch cuối.
 
-### NHIỆM VỤ CỦA BẠN:
-1. Đối chiếu **Văn bản gốc (SOURCE)** và **Bản dịch thô (DRAFT)** từ Agent Dịch Thuật.
-2. Phát hiện và sửa triệt để:
-   - Các câu bị dịch word-by-word (sát chữ ngô nghê), cấu trúc bị động cứng nhắc ("bị/được... bởi", "một cách...").
-   - Các lỗi sai lệch sắc thái nghĩa, sai thuật ngữ chuyên ngành hoặc thiếu tự nhiên trong {target_lang}.
-3. Chuốt lại câu văn cho thật mượt mà, gãy gọn, giàu nhịp điệu chuẩn sách xuất bản, nhưng **TUYỆT ĐỐI giữ nguyên 100% ý nghĩa gốc, số liệu, công thức và ký hiệu**.
-4. Giữ nguyên chính xác các dấu ⟦n⟧ ⟦/n⟧ ⟦n/⟧ (nếu có), đặt chúng vào đúng từ/cụm tương ứng trong bản dịch; không bỏ, không thêm, không đổi số.
+### TỰ PHÁN ĐOÁN, ĐỪNG SỬA ĐỂ CÓ SỬA:
+Với MỖI đoạn, tự đọc và quyết định:
+- Nếu DRAFT đã chính xác và đọc tự nhiên như người bản ngữ viết: trả về **NGUYÊN VĂN từng chữ**. Đây là kết quả tốt, không phải sự lười biếng. Tuyệt đối không thay từ đồng nghĩa hay đảo câu chỉ cho khác đi.
+- Chỉ sửa khi thấy lỗi thật: dịch sát chữ nghe như văn dịch, sai/lệch nghĩa hoặc sắc thái, sai thuật ngữ, lệch quy ước trong BOOK BRIEF/GLOSSARY, câu rườm hoặc gượng, sai giọng điệu so với loại tài liệu. Sửa đúng chỗ đó, giữ phần còn lại.
+- Khi sửa, giữ nguyên 100% ý nghĩa, số liệu, tên riêng, công thức, ký hiệu. Không thêm hay bớt ý, không "giải thích" thêm. Nếu SOURCE là một mảnh dở dang (đầu danh sách, câu bị cắt, nhãn ngắn) thì bản dịch cũng giữ đúng tính chất dở dang/ngắn đó, đừng tự làm cho "trọn vẹn".
+- Văn phong phải hợp với chính tài liệu này (đọc BOOK BRIEF): văn học khác pháp lý khác biểu mẫu. Nhịp câu, giọng điệu, độ trang trọng theo đó mà chọn.
+Giữ nguyên chính xác các dấu ⟦n⟧ ⟦/n⟧ ⟦n/⟧ (nếu có), đặt chúng vào đúng từ/cụm tương ứng; không bỏ, không thêm, không đổi số.
 """
     blocks = [base]
     if custom_prompt and custom_prompt.strip():
@@ -266,25 +276,31 @@ def build_editor_batch_user_prompt(
 
 
 def build_book_profile_prompt(
-    sample_text: str, target_lang: str = "Tiếng Việt", max_terms: int = 40
+    sample_text: str, target_lang: str = "Tiếng Việt", max_terms: int = 40, layout_hint: str = ""
 ) -> str:
-    """Agent 2: phân tích cuốn sách một lần để tạo BOOK BRIEF + glossary, thay cho việc người dùng tự viết prompt."""
-    return f"""Bạn là tổng biên tập một nhà xuất bản, chuẩn bị "hồ sơ dịch thuật" để một nhóm dịch giả dịch cuốn sách này sang {target_lang} thật nhất quán và hay.
-Dưới đây là các đoạn trích lấy từ đầu, giữa và cuối sách. Hãy phân tích và trả về DUY NHẤT một JSON object (không lời dẫn, không markdown) có cấu trúc:
+    """Agent 2: AI đọc tài liệu, tự hiểu nó là gì, dùng để làm gì, rồi tự viết ghi chú dịch thuật cho ĐÚNG tài liệu này
+    (không có danh sách ô cố định phải điền)."""
+    layout_block = (
+        f"\n### THÔNG TIN BỐ CỤC CỦA FILE (do máy đo, chỉ để tham khảo khi suy luận):\n{layout_hint.strip()}\n"
+        if layout_hint and layout_hint.strip()
+        else ""
+    )
+    return f"""Bạn là một dịch giả kiêm biên tập viên giàu kinh nghiệm, sắp dẫn dắt một nhóm dịch tài liệu dưới đây sang {target_lang}.
+Trước khi ai bắt tay dịch, hãy ĐỌC KỸ đoạn trích (lấy từ đầu, giữa, cuối) và tự HIỂU: đây là tài liệu gì, ai viết cho ai, dùng vào việc gì, giọng điệu ra sao, và một bản dịch xuất sắc của NÓ cần chú ý những gì.
+Đừng làm theo danh sách kiểm tra có sẵn. Tiểu thuyết, hợp đồng, biểu mẫu, sách nấu ăn, giáo trình, sách lập trình, truyện thiếu nhi... mỗi loại đòi hỏi những cân nhắc rất khác nhau; hãy tự nghĩ như một người trong nghề xem VỚI TÀI LIỆU NÀY điều gì thật sự quan trọng (có thể là cách gọi tên tổ chức, ngày tháng và đơn vị, giọng văn, nhịp câu, độ dài bản dịch so với khung chứa, thuật ngữ, lời thoại, thơ vần, đoạn nào phải giữ nguyên...), và chỉ viết những điều đáng viết.
+Trả về DUY NHẤT một JSON object (không lời dẫn, không markdown):
 
 {{
-  "genre": "thể loại cụ thể (VD: sách kinh doanh, tiểu thuyết trinh thám, kỹ thuật phần mềm, tự truyện...)",
-  "audience": "độc giả mục tiêu",
-  "tone": "giọng văn của tác giả (VD: hài hước, học thuật, truyền cảm hứng, kể chuyện ngôi thứ nhất...)",
-  "narration": "ngôi kể / cách tác giả xưng hô với độc giả",
-  "address_rules": "quy ước xưng hô khi dịch sang {target_lang} (VD: tác giả xưng 'tôi', gọi độc giả là 'bạn'; nhân vật A gọi B là 'anh'...). Nêu cụ thể theo quan hệ nhân vật nếu là tiểu thuyết",
-  "style_rules": ["5-8 quy tắc văn phong cụ thể để bản dịch hay và đúng chất sách này"],
-  "do_not_translate": ["tên/thuật ngữ nên giữ nguyên tiếng gốc"],
-  "glossary": [{{"src": "thuật ngữ/tên riêng gốc", "dst": "cách dịch chuẩn", "note": "loại, ngắn gọn"}}]
+  "document_type": "tài liệu này là loại gì, mô tả bằng lời của bạn (không chọn từ danh sách)",
+  "understanding": "1-3 câu: tài liệu nói về gì, ai viết cho ai, dùng để làm gì",
+  "translator_notes": "ghi chú viết tự do cho cả nhóm dịch: những quyết định và lưu ý của BẠN cho riêng tài liệu này, kèm lý do ngắn khi cần. Dài ngắn tùy ý, viết như một biên tập viên dặn dò đồng nghiệp, nêu cụ thể và hành động được",
+  "address_rules": "nếu có nhân vật/người nói thì quy ước xưng hô khi dịch sang {target_lang} (cụ thể theo quan hệ); nếu không áp dụng thì để rỗng",
+  "do_not_translate": ["tên/thuật ngữ/đoạn nên giữ nguyên tiếng gốc"],
+  "glossary": [{{"src": "thuật ngữ/tên riêng gốc", "dst": "cách dịch chuẩn, CHỈ phần {target_lang}, không kèm bản gốc trong ngoặc", "note": "loại, ngắn gọn"}}]
 }}
 
 Yêu cầu glossary: tối đa {max_terms} mục; chỉ gồm tên nhân vật, địa danh, tổ chức, khái niệm/thuật ngữ đặc thù xuất hiện nhiều hoặc quan trọng; KHÔNG đưa từ vựng thông thường.
-
+{layout_block}
 ### ĐOẠN TRÍCH:
 \"\"\"
 {sample_text[:18000]}
@@ -292,9 +308,11 @@ Yêu cầu glossary: tối đa {max_terms} mục; chỉ gồm tên nhân vật, 
 
 
 def format_book_brief(profile: Dict[str, object]) -> str:
-    """Biến profile JSON thành đoạn BOOK BRIEF ngắn gọn để chèn vào mọi prompt dịch."""
+    """Biến hồ sơ do AI tự viết thành BOOK BRIEF để chèn vào mọi prompt dịch."""
     lines: List[str] = []
     for key, label in (
+        ("document_type", "Loại tài liệu"),
+        ("understanding", "Hiểu về tài liệu"),
         ("genre", "Thể loại"),
         ("audience", "Độc giả"),
         ("tone", "Giọng văn"),
@@ -304,6 +322,18 @@ def format_book_brief(profile: Dict[str, object]) -> str:
         val = str(profile.get(key) or "").strip()
         if val:
             lines.append(f"- {label}: {val}")
+    notes = profile.get("translator_notes")
+    if isinstance(notes, list):
+        notes = " ".join(str(n).strip() for n in notes if str(n).strip())
+    notes = str(notes or "").strip()
+    if notes:
+        lines.append(f"- Ghi chú của biên tập viên cho nhóm dịch: {notes}")
+    # tương thích hồ sơ kiểu cũ (policies / style_rules)
+    policies = profile.get("policies")
+    if isinstance(policies, dict):
+        for key, val in policies.items():
+            if str(val or "").strip():
+                lines.append(f"- {key}: {str(val).strip()}")
     rules = profile.get("style_rules")
     if isinstance(rules, list):
         for r in rules[:8]:

@@ -157,6 +157,112 @@ def extract_book_spread_sample(input_path: str, total_chars: int = 15000) -> str
     return (chr(10) * 2 + "[...]" + chr(10) * 2).join(full[st : st + part] for st in starts)
 
 
+def _describe_pdf_layout(input_path: str) -> str:
+    import fitz  # PyMuPDF
+
+    doc = fitz.open(input_path)
+    try:
+        n = len(doc)
+        if n == 0:
+            return ""
+        idxs = sorted({int(i * (n - 1) / max(1, min(12, n) - 1)) for i in range(min(12, n))})
+        lines = short = vertical_pages = rect_pages = img_pages = bullet_pages = 0
+        text_pages = 0
+        total_chars = 0
+        for i in idxs:
+            page = doc[i]
+            data = page.get_text("dict")
+            page_lines = 0
+            page_vertical = False
+            page_bullets = False
+            page_chars = 0
+            for block in data.get("blocks", []):
+                if block.get("type") != 0:
+                    continue
+                for line in block.get("lines", []):
+                    txt = "".join(sp.get("text", "") for sp in line.get("spans", [])).strip()
+                    if not txt:
+                        continue
+                    page_lines += 1
+                    page_chars += len(txt)
+                    if len(txt) < 35:
+                        short += 1
+                    if abs(line.get("dir", (1, 0))[1]) > 0.9:
+                        page_vertical = True
+                    if any(ch in txt[:3] for ch in "•▪☐☑") or any(
+                        "wingding" in sp.get("font", "").lower() or "symbol" in sp.get("font", "").lower()
+                        for sp in line.get("spans", [])
+                    ):
+                        page_bullets = True
+            lines += page_lines
+            total_chars += page_chars
+            text_pages += 1 if page_chars > 30 else 0
+            vertical_pages += 1 if page_vertical else 0
+            bullet_pages += 1 if page_bullets else 0
+            img_pages += 1 if page.get_images() else 0
+            try:
+                rects = [d for d in page.get_drawings() if d.get("rect") is not None and d["rect"].width > 20 and d["rect"].height > 8]
+                rect_pages += 1 if len(rects) >= 6 else 0
+            except Exception:
+                pass
+        k = len(idxs)
+        avg_lines = lines / k
+        out = [
+            f"PDF {n} trang (xem {k} trang mẫu), khổ {int(doc[0].rect.width)}x{int(doc[0].rect.height)}pt; bố cục cố định (máy sẽ thay chữ tại đúng vị trí gốc).",
+            f"Trung bình {avg_lines:.0f} dòng chữ/trang, {100 * short / max(1, lines):.0f}% là dòng ngắn (<35 ký tự); {total_chars // max(1, k)} ký tự/trang.",
+            f"{100 * rect_pages // k}% trang có bảng/khung/ô tô màu; {100 * img_pages // k}% trang có ảnh; "
+            f"{100 * bullet_pages // k}% trang có dấu đầu dòng/ô tích; {100 * vertical_pages // k}% trang có chữ xoay dọc.",
+        ]
+        if text_pages < k // 2:
+            out.append("CẢNH BÁO: nhiều trang gần như không có lớp chữ (có thể là bản scan/ảnh).")
+        return " ".join(out)
+    finally:
+        doc.close()
+
+
+def _describe_docx_layout(input_path: str) -> str:
+    d = docx.Document(input_path)
+    tables = len(d.tables)
+    paras = [p for p in d.paragraphs if p.text.strip()]
+    heads = sum(1 for p in paras if (p.style.name or "").lower().startswith("heading"))
+    imgs = len(d.inline_shapes)
+    short = sum(1 for p in paras if len(p.text.strip()) < 35)
+    return (
+        f"DOCX: {len(paras)} đoạn chữ ({100 * short // max(1, len(paras))}% là đoạn ngắn), {heads} đề mục, "
+        f"{tables} bảng, {imgs} ảnh."
+    )
+
+
+def _describe_epub_layout(input_path: str) -> str:
+    import zipfile
+
+    with zipfile.ZipFile(input_path) as z:
+        names = z.namelist()
+        html = [n for n in names if n.lower().endswith((".xhtml", ".html", ".htm"))]
+        imgs = [n for n in names if n.lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".svg"))]
+        tables = pres = 0
+        for n in html[:25]:
+            raw = z.read(n).decode("utf-8", errors="ignore").lower()
+            tables += raw.count("<table")
+            pres += raw.count("<pre") + raw.count("<code")
+    return f"EPUB: {len(html)} tệp nội dung, {len(imgs)} ảnh, {tables} bảng, {pres} khối mã/định dạng sẵn (xem 25 tệp đầu)."
+
+
+def describe_book_layout(input_path: str) -> str:
+    """Mô tả ngắn cấu trúc/bố cục của file (do máy đo) để Agent 2 suy ra loại tài liệu và chính sách dịch phù hợp."""
+    ext = os.path.splitext(input_path)[1].lower()
+    try:
+        if ext == ".pdf":
+            return _describe_pdf_layout(input_path)
+        if ext == ".docx":
+            return _describe_docx_layout(input_path)
+        if ext == ".epub":
+            return _describe_epub_layout(input_path)
+    except Exception as exc:
+        logger.debug("describe_book_layout failed: %s", exc)
+    return ""
+
+
 def _setup_clean_docx_styles(doc: docx.document.Document) -> None:
     """
     Thiết lập font chữ chuẩn Tiếng Việt (Times New Roman / Arial / Segoe UI)

@@ -128,6 +128,29 @@ def _parse_page_range(page_range_str: str, total: int) -> Optional[set]:
     return allowed or None
 
 
+def _role_hint(u: Unit, page_h: float, body_size: float, repeats: int) -> str:
+    """Máy suy ra VAI TRÒ của đoạn trong trang (từ cỡ chữ, độ đậm, khung chứa, vị trí) để AI tự hiểu ngữ cảnh."""
+    parts: List[str] = [f"trang {u.page + 1}"]
+    top, bottom = u.rect.y0 < page_h * 0.08, u.rect.y1 > page_h * 0.92
+    if u.vertical:
+        parts.append("chữ xoay dọc trên biểu mẫu")
+    if body_size and u.size >= body_size * 1.5:
+        parts.append("tiêu đề cỡ lớn")
+    elif u.bold and len(u.text) < 70:
+        parts.append("đề mục hoặc nhãn in đậm")
+    if (top or bottom) and repeats >= 3:
+        parts.append("đầu/chân trang lặp lại ở nhiều trang (giữ nhất quán)")
+    elif bottom and body_size and u.size < body_size * 0.9:
+        parts.append("chú thích/ghi chú cuối trang")
+    if u.container is not None and len(u.text) < 45:
+        parts.append("nhãn hoặc ô nằm trong bảng/khung")
+    if u.starts_bullet:
+        parts.append("một mục trong danh sách gạch đầu dòng/ô tích")
+    if len(u.text) < 22 and len(parts) == 1:
+        parts.append("nhãn ngắn")
+    return "; ".join(parts)
+
+
 def _make_batches(units: List[Unit], max_items: int, max_chars: int) -> List[List[Unit]]:
     """Gom các đoạn liền kề (theo thứ tự trang) thành batch; ngắt batch khi quá số đoạn/ký tự."""
     batches: List[List[Unit]] = []
@@ -204,6 +227,11 @@ async def translate_pdf_file(
         for u in work:
             groups.setdefault(u._send, []).append(u)  # type: ignore[attr-defined]
         reps = [g[0] for g in groups.values()]
+        sizes = sorted(u.size for u in work for _ in range(max(1, len(u.text) // 40)))
+        body_size = sizes[len(sizes) // 2] if sizes else 0.0
+        page_h = doc[0].rect.height if len(doc) else 792.0
+        for key, members in groups.items():
+            members[0]._hint = _role_hint(members[0], page_h, body_size, len(members))  # type: ignore[attr-defined]
         total_items = len(reps)
         translated_items = 0
 
@@ -238,8 +266,11 @@ async def translate_pdf_file(
                 if cancel_event and cancel_event.is_set():
                     cancelled = True
                     return
+                hints = [getattr(u, "_hint", "") for u in batch]
                 try:
-                    translations = await llm_client.translate_batch(texts, context=context, glossary=glossary)
+                    translations = await llm_client.translate_batch(
+                        texts, context=context, glossary=glossary, hints=hints
+                    )
                 except TypeError:
                     translations = await llm_client.translate_batch(texts)
             if not translations or len(translations) != len(batch):

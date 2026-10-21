@@ -1045,6 +1045,7 @@ class TranslationLLMClient:
         texts: List[str],
         context: str = "",
         glossary: Optional[List[Dict[str, str]]] = None,
+        hints: Optional[List[str]] = None,
     ) -> List[str]:
         """
         Multi-Agent Batch Pipeline:
@@ -1082,8 +1083,10 @@ class TranslationLLMClient:
             return [r if r is not None else "" for r in results]
 
         if len(uncached_texts) == 1:
+            single_hint = (hints[uncached_indices[0]] if hints and uncached_indices[0] < len(hints) else "") or ""
+            single_ctx = f"{context}\n(Vai trò/vị trí của đoạn cần dịch: {single_hint})".strip() if single_hint else context
             single_res = await self.translate_text(
-                uncached_texts[0], context=context, glossary=glossary
+                uncached_texts[0], context=single_ctx, glossary=glossary
             )
             results[uncached_indices[0]] = single_res
             return [r if r is not None else "" for r in results]
@@ -1094,7 +1097,10 @@ class TranslationLLMClient:
         term_candidates = (
             self._term_candidates(combined_src, glossary) if provider != "google_free" else []
         )
-        batch_user_prompt = build_batch_user_prompt(uncached_texts)
+        uncached_hints = [
+            (hints[i] if hints and i < len(hints) else "") or "" for i in uncached_indices
+        ]
+        batch_user_prompt = build_batch_user_prompt(uncached_texts, uncached_hints)
 
         parsed_segments: Optional[List[str]] = None
         call_error: Optional[Exception] = None
@@ -1191,10 +1197,11 @@ class TranslationLLMClient:
             )
             mid = len(uncached_texts) // 2
             halves = [uncached_texts[:mid], uncached_texts[mid:]]
+            half_hints = [uncached_hints[:mid], uncached_hints[mid:]]
             half_outputs = await asyncio.gather(
                 *[
-                    self.translate_batch(h, context=context, glossary=glossary)
-                    for h in halves
+                    self.translate_batch(h, context=context, glossary=glossary, hints=hh)
+                    for h, hh in zip(halves, half_hints)
                     if h
                 ]
             )
@@ -1272,7 +1279,7 @@ class TranslationLLMClient:
         return normalize_glossary(candidates)[:max_terms]
 
     async def extract_book_profile(
-        self, sample_text: str, max_terms: int = 40
+        self, sample_text: str, max_terms: int = 40, layout_hint: str = ""
     ) -> Dict[str, Any]:
         """
         Agent 2 (bản nâng cấp): phân tích sách 1 lần -> BOOK BRIEF (thể loại, giọng văn, xưng hô,
@@ -1293,7 +1300,7 @@ class TranslationLLMClient:
                 "Chỉ trả về một JSON object hợp lệ."
             )
             user_prompt = build_book_profile_prompt(
-                sample_text, self.config.target_lang, max_terms
+                sample_text, self.config.target_lang, max_terms, layout_hint
             )
             async with self.semaphore:
                 raw = await self._call_llm_with_rotation(

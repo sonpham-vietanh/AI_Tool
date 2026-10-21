@@ -30,6 +30,7 @@ from .search import (
 )
 from .translators import (
     convert_to_docx,
+    describe_book_layout,
     extract_book_spread_sample,
     translate_docx_file,
     translate_epub_file,
@@ -525,7 +526,10 @@ async def _execute_translation_pipeline(
                     extract_book_spread_sample, str(input_path_obj), 15000
                 )
                 if sample_text and len(sample_text.strip()) > 80:
-                    profile = await llm_client.extract_book_profile(sample_text, max_terms=40)
+                    layout_hint = await asyncio.to_thread(describe_book_layout, str(input_path_obj))
+                    profile = await llm_client.extract_book_profile(
+                        sample_text, max_terms=40, layout_hint=layout_hint
+                    )
                     extracted_terms = profile["glossary"]
                     if profile["brief"]:
                         llm_client.book_brief = profile["brief"]

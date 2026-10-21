@@ -1,4 +1,9 @@
-from .converter import convert_to_docx, extract_book_sample_text, extract_book_spread_sample
+from .converter import (
+    convert_to_docx,
+    describe_book_layout,
+    extract_book_sample_text,
+    extract_book_spread_sample,
+)
 from .docx_translator import translate_docx_file
 from .epub_translator import translate_epub_file
 from .pdf_font_helper import get_vietnamese_font_path
@@ -13,5 +18,6 @@ __all__ = [
     "get_vietnamese_font_path",
     "extract_book_sample_text",
     "extract_book_spread_sample",
+    "describe_book_layout",
     "convert_to_docx",
 ]
