@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import hmac
 import json
 import logging
 import os
@@ -43,10 +45,10 @@ logger = logging.getLogger("BookTranslatorHub")
 BASE_DIR = Path(__file__).resolve().parent.parent
 BACKEND_DIR = Path(__file__).resolve().parent
 FRONTEND_DIR = BASE_DIR / "frontend"
-STORAGE_DIR = BACKEND_DIR / "storage"
+STORAGE_DIR = Path(os.environ.get("BTH_DATA_DIR") or (BACKEND_DIR / "storage"))  # dữ liệu runtime (có thể mount volume)
 DOWNLOADS_DIR = STORAGE_DIR / "downloads"
 OUTPUTS_DIR = STORAGE_DIR / "outputs"
-FONTS_DIR = STORAGE_DIR / "fonts"
+FONTS_DIR = BACKEND_DIR / "storage" / "fonts"  # font đi kèm repo
 SETTINGS_FILE = STORAGE_DIR / "settings.json"
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 
@@ -438,6 +440,7 @@ async def _execute_translation_pipeline(
                     dest_dir=str(DOWNLOADS_DIR),
                     preferred_formats=pref_list,
                     progress_cb=dl_progress_cb,
+                    target_lang=(config.target_lang_code or "vi").split("-")[0].lower(),
                 )
                 input_file_path = downloaded_path
                 job["title"] = chosen_book.title
@@ -915,11 +918,11 @@ app = FastAPI(
     description="1-Click Book Search, Auto-Download & Multi-Agent/Multi-Thread AI Book Translation Hub",
 )
 
-_restore_jobs_from_store()
 
 
 @app.on_event("startup")
 async def _start_job_persister() -> None:
+    _restore_jobs_from_store()
     app.state.job_persister = asyncio.create_task(_job_persister_loop())
 
 
@@ -941,6 +944,24 @@ async def _flush_jobs_on_shutdown() -> None:
 
 ALLOWED_ORIGIN_RE = r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$"
 
+# --- Triển khai trên server -------------------------------------------------
+# BTH_ALLOWED_HOSTS: domain được phép truy cập, phân tách bằng dấu phẩy (VD: books.example.com)
+# BTH_AUTH_USER / BTH_AUTH_PASSWORD: đăng nhập HTTP Basic cho toàn bộ app (BẮT BUỘC khi mở ra ngoài)
+LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+ALLOWED_HOSTS = {
+    h.strip().lower() for h in os.environ.get("BTH_ALLOWED_HOSTS", "").split(",") if h.strip()
+}
+ALLOW_ANY_HOST = bool(os.environ.get("BTH_ALLOW_REMOTE"))
+AUTH_USER = os.environ.get("BTH_AUTH_USER", "admin")
+AUTH_PASSWORD = os.environ.get("BTH_AUTH_PASSWORD", "")
+PUBLIC_EXEMPT_PATHS = ("/api/ping",)
+
+if (ALLOWED_HOSTS or ALLOW_ANY_HOST) and not AUTH_PASSWORD:
+    raise RuntimeError(
+        "Mở app ra ngoài localhost (BTH_ALLOWED_HOSTS / BTH_ALLOW_REMOTE) bắt buộc phải đặt BTH_AUTH_PASSWORD, "
+        "nếu không ai có link cũng dùng được API key của bạn."
+    )
+
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=ALLOWED_ORIGIN_RE,
@@ -950,16 +971,53 @@ app.add_middleware(
 )
 
 
+def _host_of(value: str) -> str:
+    value = (value or "").strip().lower()
+    if value.startswith("["):  # IPv6 dạng [::1]:8088
+        return value[1:].split("]")[0]
+    return value.split(":")[0]
+
+
+def _basic_auth_ok(header: str) -> bool:
+    if not header.lower().startswith("basic "):
+        return False
+    try:
+        user, _, password = base64.b64decode(header[6:].strip()).decode("utf-8").partition(":")
+    except Exception:
+        return False
+    ok_user = hmac.compare_digest(user.encode(), AUTH_USER.encode())
+    ok_pass = hmac.compare_digest(password.encode(), AUTH_PASSWORD.encode())
+    return ok_user and ok_pass
+
+
+@app.get("/api/ping")
+async def api_ping() -> Dict[str, Any]:
+    return {"ok": True}
+
+
 @app.middleware("http")
 async def block_foreign_origins(request: Request, call_next):
-    """Chặn trang web lạ (CSRF / DNS rebinding) gọi API ghi từ trình duyệt của người dùng."""
+    """Chặn trang web lạ (CSRF / DNS rebinding) và yêu cầu đăng nhập khi chạy trên server."""
+    host = _host_of(request.headers.get("host") or "")
+    if not os.environ.get("BTH_ALLOW_REMOTE") and host not in LOCAL_HOSTS and host not in ALLOWED_HOSTS:
+        return JSONResponse({"detail": "Host không được phép."}, status_code=403)
+
     if request.method not in ("GET", "HEAD", "OPTIONS") or request.url.path == "/api/settings":
         origin = request.headers.get("origin")
-        if origin and not re.match(ALLOWED_ORIGIN_RE, origin):
-            return JSONResponse({"detail": "Origin không được phép."}, status_code=403)
-    host = (request.headers.get("host") or "").split(":")[0].strip("[]")
-    if host not in ("localhost", "127.0.0.1", "::1") and not os.environ.get("BTH_ALLOW_REMOTE"):
-        return JSONResponse({"detail": "Host không được phép."}, status_code=403)
+        if origin:
+            origin_host = _host_of(origin.split("://", 1)[-1])
+            if not re.match(ALLOWED_ORIGIN_RE, origin) and origin_host not in ALLOWED_HOSTS and not (
+                os.environ.get("BTH_ALLOW_REMOTE") and origin_host == host
+            ):
+                return JSONResponse({"detail": "Origin không được phép."}, status_code=403)
+
+    if AUTH_PASSWORD and request.url.path not in PUBLIC_EXEMPT_PATHS and request.method != "OPTIONS":
+        if not _basic_auth_ok(request.headers.get("authorization", "")):
+            return JSONResponse(
+                {"detail": "Cần đăng nhập."},
+                status_code=401,
+                headers={"WWW-Authenticate": 'Basic realm="BookTranslatorHub"'},
+            )
     return await call_next(request)
 
 
@@ -1158,12 +1216,20 @@ async def api_start_upload_job(
     return {"ok": True, "job_id": job["id"], "job": job}
 
 
+HEAVY_JOB_FIELDS = ("previews", "agent_logs", "glossary", "brief", "learned_terms", "config_dump")
+
+
 @app.get("/api/jobs")
-async def api_list_jobs() -> Dict[str, Any]:
+async def api_list_jobs(active: Optional[str] = Query(default=None)) -> Dict[str, Any]:
+    """Danh sách job (rút gọn). Job `active` được trả đầy đủ để giao diện không phải tải cả MB mỗi lần poll."""
     sorted_jobs = sorted(
         JOBS.values(), key=lambda x: x.get("created_at", 0), reverse=True
     )[:MAX_LISTED_JOBS]
-    return {"ok": True, "jobs": sorted_jobs}
+    result = [
+        j if j.get("id") == active else {k: v for k, v in j.items() if k not in HEAVY_JOB_FIELDS}
+        for j in sorted_jobs
+    ]
+    return {"ok": True, "jobs": result}
 
 
 @app.get("/api/jobs/{job_id}")

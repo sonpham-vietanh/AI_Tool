@@ -2,7 +2,7 @@ import os
 import shutil
 from pathlib import Path
 
-DEFAULT_FONT_DIR = r"E:\Workspace\BookTranslatorHub\backend\storage\fonts"
+DEFAULT_FONT_DIR = str(Path(__file__).resolve().parent.parent / "storage" / "fonts")
 WINDOWS_FONTS_DIR = r"C:\Windows\Fonts"
 
 # Danh sách ưu tiên các font hỗ trợ 100% Tiếng Việt Unicode trên Windows

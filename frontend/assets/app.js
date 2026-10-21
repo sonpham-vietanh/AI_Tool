@@ -945,7 +945,9 @@
   // =========================================================================
   async function fetchJobsList() {
     try {
-      const res = await fetch("/api/jobs");
+      const res = await fetch(
+        activeJobId ? `/api/jobs?active=${encodeURIComponent(activeJobId)}` : "/api/jobs"
+      );
       if (!res.ok) return;
       const data = await res.json();
       jobsList = data.jobs || [];
@@ -978,6 +980,7 @@
     if (job) {
       renderActiveJobStudio(job);
     }
+    fetchJobsList(); // lấy bản đầy đủ (preview, log, glossary) của job vừa chọn
   }
 
   function renderJobsSidebar() {

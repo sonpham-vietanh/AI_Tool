@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 _BASE = Path(__file__).resolve().parent
-DEFAULT_DB_PATH = str(_BASE / "storage" / "jobs.db")
+DEFAULT_DB_PATH = str(Path(os.environ.get("BTH_DATA_DIR") or (_BASE / "storage")) / "jobs.db")
 
 _lock = threading.Lock()
 _conn: Optional[sqlite3.Connection] = None

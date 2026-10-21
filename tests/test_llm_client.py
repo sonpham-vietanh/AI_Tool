@@ -124,18 +124,53 @@ def test_batch_marker_loss_splits_in_half(make_client):
     assert len(cl.calls) == 3  # 1 failed full batch + 2 halves
 
 
-def test_batch_llm_exception_degrades_to_halves_then_singles(make_client):
-    state = {"n": 0}
-
+def test_batch_api_error_does_not_split_and_raises_without_fallback(make_client):
+    # Lỗi API (không phải lệch marker) => không chia đôi, chỉ 1 lượt gọi, rồi raise (fallback tắt).
     def handler(sys_p, user_p, model):
-        state["n"] += 1
-        if "[[#1]]" in user_p:
-            raise RuntimeError("boom")
-        return "VI(" + user_p.strip() + ")"
+        raise RuntimeError("boom")
 
     cl = make_client(handler=handler)
-    out = run(cl.translate_batch(["one one", "two two"]))
-    assert out == ["VI(one one)", "VI(two two)"]
+    with pytest.raises(RuntimeError, match="boom"):
+        run(cl.translate_batch(["one one", "two two"]))
+    assert len(cl.calls) == 1
+
+
+def test_batch_circuit_breaker_stops_after_repeated_api_errors(make_client):
+    def handler(sys_p, user_p, model):
+        raise RuntimeError("quota exceeded")
+
+    cl = make_client(handler=handler, fallback_to_google_free=True)
+
+    async def fake_google(text, target_lang_code=None):
+        return "G:" + text
+
+    cl._translate_google_free_raw = fake_google
+    # 2 batch đầu: rơi về Google, batch thứ 3: ngắt mạch bằng lỗi rõ ràng
+    run(cl.translate_batch(["a a", "b b"]))
+    run(cl.translate_batch(["c c", "d d"]))
+    with pytest.raises(RuntimeError, match="Tiếp tục"):
+        run(cl.translate_batch(["e e", "f f"]))
+
+
+def test_batch_success_resets_failure_counter(make_client):
+    state = {"fail": True}
+
+    def handler(sys_p, user_p, model):
+        if state["fail"]:
+            raise RuntimeError("temporary")
+        return "[[#0]] X0" + chr(10) + "[[#1]] X1"
+
+    cl = make_client(handler=handler, fallback_to_google_free=True)
+
+    async def fake_google(text, target_lang_code=None):
+        return "G:" + text
+
+    cl._translate_google_free_raw = fake_google
+    run(cl.translate_batch(["a a", "b b"]))
+    assert cl._consecutive_batch_failures == 1
+    state["fail"] = False
+    run(cl.translate_batch(["c c", "d d"]))
+    assert cl._consecutive_batch_failures == 0
 
 
 def test_batch_cache_isolated_per_model(make_client, cache):

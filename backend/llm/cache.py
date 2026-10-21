@@ -16,7 +16,7 @@ class TranslationCache:
     def __init__(self, db_path: Optional[str] = None):
         if not db_path:
             base_dir = Path(__file__).resolve().parent.parent
-            storage_dir = base_dir / "storage"
+            storage_dir = Path(os.environ.get("BTH_DATA_DIR") or (base_dir / "storage"))
             storage_dir.mkdir(parents=True, exist_ok=True)
             db_path = str(storage_dir / "translation_cache.db")
         else:

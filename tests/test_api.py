@@ -1,6 +1,7 @@
 """API tests via FastAPI TestClient. All storage / settings / cache redirected to tmp dirs."""
 import io
 import json
+import os
 import time
 
 import pytest
@@ -302,3 +303,68 @@ def test_merge_job_config_overrides(env):
     assert cfg.target_lang == "English" and cfg.bilingual is True
     assert cfg.api_keys == [REAL_KEY]
     assert m._merge_job_config(None).api_keys[0] == REAL_KEY
+
+
+# ------------------------------------------------- job list / persistence
+def test_jobs_list_is_slim_except_active(client):
+    _job(previews=[{"src": "a", "dst": "b"}], glossary=[{"src": "x", "dst": "y"}], brief="B", title="T")
+    slim = client.get("/api/jobs").json()["jobs"][0]
+    assert slim["title"] == "T" and "previews" not in slim and "glossary" not in slim and "brief" not in slim
+    full = client.get("/api/jobs", params={"active": "job1"}).json()["jobs"][0]
+    assert full["previews"] and full["glossary"] and full["brief"] == "B"
+
+
+def test_running_jobs_become_interrupted_on_restore(env):
+    from backend import jobs_store
+
+    jobs_store.save_job({"id": "run1", "status": "translating", "created_at": 1.0})
+    jobs_store.save_job({"id": "done1", "status": "completed", "created_at": 2.0})
+    m.JOBS.clear()
+    m._restore_jobs_from_store()
+    assert m.JOBS["run1"]["status"] == "interrupted"
+    assert m.JOBS["done1"]["status"] == "completed"
+
+
+# ------------------------------------------------- deployment: auth + allowed hosts
+def _basic(user, pw):
+    import base64
+
+    return {"Authorization": "Basic " + base64.b64encode(f"{user}:{pw}".encode()).decode()}
+
+
+def test_basic_auth_required_when_password_set(env, monkeypatch):
+    monkeypatch.setattr(m, "AUTH_PASSWORD", "s3cret")
+    monkeypatch.setattr(m, "AUTH_USER", "admin")
+    with TestClient(m.app, base_url="http://localhost:8088") as c:
+        assert c.get("/api/health").status_code == 401
+        assert c.get("/api/health", headers=_basic("admin", "wrong")).status_code == 401
+        assert c.get("/api/health", headers=_basic("admin", "s3cret")).status_code == 200
+        assert c.get("/").status_code == 401  # cả giao diện cũng bị khóa
+        assert c.get("/api/ping").status_code == 200  # healthcheck không cần đăng nhập
+
+
+def test_allowed_hosts_domain_and_same_origin(env, monkeypatch):
+    monkeypatch.setattr(m, "ALLOWED_HOSTS", {"books.example.com"})
+    ok = TestClient(m.app, base_url="https://books.example.com")
+    assert ok.get("/api/ping").status_code == 200
+    assert ok.post("/api/cache/clear", headers={"Origin": "https://books.example.com"}).status_code == 200
+    assert ok.post("/api/cache/clear", headers={"Origin": "https://evil.com"}).status_code == 403
+    assert TestClient(m.app, base_url="https://other.example.com").get("/api/ping").status_code == 403
+
+
+def test_public_deploy_without_password_refuses_to_start(tmp_path):
+    import subprocess
+    import sys
+
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env_vars = {**os.environ, "BTH_DATA_DIR": str(tmp_path), "BTH_ALLOWED_HOSTS": "books.example.com"}
+    env_vars.pop("BTH_AUTH_PASSWORD", None)
+    bad = subprocess.run(
+        [sys.executable, "-c", "import backend.main"], cwd=root, env=env_vars, capture_output=True, text=True
+    )
+    assert bad.returncode != 0 and "BTH_AUTH_PASSWORD" in bad.stderr
+    env_vars["BTH_AUTH_PASSWORD"] = "pw"
+    good = subprocess.run(
+        [sys.executable, "-c", "import backend.main"], cwd=root, env=env_vars, capture_output=True, text=True
+    )
+    assert good.returncode == 0, good.stderr[-400:]

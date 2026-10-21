@@ -1,0 +1,17 @@
+.git
+.gitignore
+.vscode
+.idea
+__pycache__
+*.pyc
+tests
+pytest.ini
+requirements-dev.txt
+start_hub.bat
+backend/storage/settings.json
+backend/storage/*.db
+backend/storage/*.db-shm
+backend/storage/*.db-wal
+backend/storage/downloads
+backend/storage/outputs
+*.log

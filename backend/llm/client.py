@@ -154,6 +154,8 @@ class TranslationLLMClient:
         self.agent_event_cb = agent_event_cb
         self.last_editor_diffs: Dict[str, Dict[str, str]] = {}
         self.book_brief: str = ""
+        self._consecutive_batch_failures = 0
+        self.max_consecutive_failures = 3
         # Term memory (learned proper nouns / terms); `learned_terms` is a list of
         # {"src","dst","note"} dicts in learning order, safe to read/serialize at any time.
         self.learned_terms: List[Dict[str, str]] = []
@@ -1087,6 +1089,7 @@ class TranslationLLMClient:
         batch_user_prompt = build_batch_user_prompt(uncached_texts)
 
         parsed_segments: Optional[List[str]] = None
+        call_error: Optional[Exception] = None
 
         async with self.semaphore:
             try:
@@ -1139,13 +1142,31 @@ class TranslationLLMClient:
                                 uncached_texts, parsed_segments, matched_glossary
                             )
             except Exception as exc:
-                logger.warning(
-                    "Batch translation call failed (%s); falling back to parallel single segments.",
-                    exc,
-                )
+                logger.warning("Batch translation call failed (%s).", exc)
+                call_error = exc
                 parsed_segments = None
 
+        if call_error is not None:
+            # Lỗi API (429/503/hết quota/sai key...): KHÔNG chia đôi (chia chỉ làm bão request).
+            self._consecutive_batch_failures += 1
+            if self._consecutive_batch_failures >= self.max_consecutive_failures:
+                raise RuntimeError(
+                    f"LLM lỗi liên tiếp {self._consecutive_batch_failures} batch, dừng để tránh dịch hỏng/tốn tiền. "
+                    f"Kiểm tra API key, hạn mức (quota) hoặc model rồi bấm 'Tiếp tục'. Lỗi cuối: {call_error}"
+                ) from call_error
+            if not self.config.fallback_to_google_free:
+                raise call_error
+            fallback_outputs = await asyncio.gather(
+                *[self._translate_google_free_raw(t) for t in uncached_texts]
+            )
+            for idx_in_batch, orig_idx in enumerate(uncached_indices):
+                results[orig_idx] = self._apply_glossary_post_replacement(
+                    fallback_outputs[idx_in_batch], uncached_texts[idx_in_batch], matched_glossary
+                )
+            return [r if r is not None else "" for r in results]
+
         if parsed_segments and len(parsed_segments) == len(uncached_texts):
+            self._consecutive_batch_failures = 0
             cache_pairs: List[tuple[str, str]] = []
             for idx_in_batch, orig_idx in enumerate(uncached_indices):
                 seg_dst = parsed_segments[idx_in_batch]
