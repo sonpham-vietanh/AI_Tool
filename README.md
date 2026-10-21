@@ -29,24 +29,28 @@ python -m uvicorn backend.main:app --host 127.0.0.1 --port 8088 --reload
 
 Sau đó truy cập: **http://localhost:8088**
 
-## Triển khai lên VPS (Docker / Dokploy)
+## Triển khai lên VPS (Docker / Coolify)
 
-Repo có sẵn `Dockerfile`. App **không có tài khoản người dùng riêng**, nên khi mở ra internet bắt buộc đặt mật khẩu bằng biến môi trường (app từ chối khởi động nếu thiếu).
+Repo có sẵn `Dockerfile`. App **không có tài khoản người dùng riêng**. Khi mở ra internet có 2 chế độ:
+
+1. **Có đăng nhập (khuyên dùng):** đặt `BTH_AUTH_PASSWORD`. Toàn bộ giao diện và API đòi HTTP Basic.
+2. **Không đăng nhập:** đặt `BTH_DISABLE_AUTH=1`. Ai có link cũng dùng được và **tốn credit LLM của bạn**. Để key không bị đánh cắp, khi chạy công khai không đăng nhập app **khóa cài đặt key/endpoint**: truyền `BTH_API_KEY` và `BTH_BASE_URL` bằng biến môi trường.
+
+App từ chối khởi động nếu mở ra ngoài mà không chọn một trong hai.
 
 **Biến môi trường** (xem `.env.example`):
 
 | Biến | Ý nghĩa |
 |---|---|
 | `BTH_ALLOWED_HOSTS` | Domain được truy cập, VD `books.example.com` (nhiều domain cách nhau bằng dấu phẩy) |
-| `BTH_AUTH_USER` / `BTH_AUTH_PASSWORD` | Đăng nhập HTTP Basic cho toàn bộ giao diện và API. **Bắt buộc** khi dùng `BTH_ALLOWED_HOSTS` |
+| `BTH_AUTH_USER` / `BTH_AUTH_PASSWORD` | Đăng nhập HTTP Basic cho toàn bộ giao diện và API |
+| `BTH_DISABLE_AUTH` | `1` = cố ý không đăng nhập (xem cảnh báo ở trên) |
 | `BTH_DATA_DIR` | Thư mục dữ liệu (mặc định `/data` trong Docker) |
-| `BTH_API_KEY`, `BTH_BASE_URL` | Tùy chọn: key và endpoint LLM mặc định (cũng nhập được trong giao diện) |
+| `BTH_API_KEY`, `BTH_BASE_URL` | Key và endpoint LLM mặc định. **Bắt buộc** ở chế độ không đăng nhập |
 
-**Các bước trên Dokploy:**
-1. Application → Provider: Git (repo này, branch `main`), Build Type: **Dockerfile**.
-2. Environment: đặt các biến ở trên.
-3. Volumes: mount một volume vào **`/data`** (nếu không, mất cache dịch, job và file sau mỗi lần redeploy).
-4. Domains: gắn domain trùng `BTH_ALLOWED_HOSTS`, cổng container **8088**, bật HTTPS.
+**Các bước trên Coolify:**
+1. New Application → nguồn Git (repo này, branch `main`), Build Pack: **Dockerfile**, cổng **8088**.
+2. Environment Variables: đặt các biến ở trên.
+3. Persistent Storage: mount một volume vào **`/data`** (nếu không, mất cache dịch, job và file sau mỗi lần redeploy).
+4. Domains: gắn domain trùng `BTH_ALLOWED_HOSTS`, bật HTTPS.
 5. Deploy. Healthcheck dùng `/api/ping` (không cần đăng nhập).
-
-Sau khi vào được, nhập API key trong Cài đặt: key được lưu trong volume `/data/settings.json`, không nằm trong image hay git.

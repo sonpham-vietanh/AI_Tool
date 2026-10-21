@@ -240,6 +240,9 @@ def _merge_job_config(override: Optional[Dict[str, Any]]) -> LLMConfig:
     base_dict = GLOBAL_SETTINGS.model_dump()
     if override and isinstance(override, dict):
         override = dict(override)
+        if _settings_locked():
+            for field in LOCKED_CONFIG_FIELDS:
+                override.pop(field, None)
         for field in ("api_keys", "gemini_api_keys"):
             if field in override:
                 override[field] = _unmask_keys(override[field], base_dict.get(field) or [])
@@ -955,12 +958,26 @@ ALLOW_ANY_HOST = bool(os.environ.get("BTH_ALLOW_REMOTE"))
 AUTH_USER = os.environ.get("BTH_AUTH_USER", "admin")
 AUTH_PASSWORD = os.environ.get("BTH_AUTH_PASSWORD", "")
 PUBLIC_EXEMPT_PATHS = ("/api/ping",)
+# Cố ý tắt đăng nhập khi mở ra ngoài (ai có link đều dùng được app). Khi đó cấu hình key/URL bị KHÓA.
+DISABLE_AUTH = os.environ.get("BTH_DISABLE_AUTH", "").strip().lower() in ("1", "true", "yes")
+# Các trường cho phép đổi key/endpoint LLM: nếu cho khách ẩn danh đổi, họ chuyển key sang server của họ.
+LOCKED_CONFIG_FIELDS = ("api_keys", "gemini_api_keys", "base_url", "gemini_base_url")
 
-if (ALLOWED_HOSTS or ALLOW_ANY_HOST) and not AUTH_PASSWORD:
+if (ALLOWED_HOSTS or ALLOW_ANY_HOST) and not AUTH_PASSWORD and not DISABLE_AUTH:
     raise RuntimeError(
-        "Mở app ra ngoài localhost (BTH_ALLOWED_HOSTS / BTH_ALLOW_REMOTE) bắt buộc phải đặt BTH_AUTH_PASSWORD, "
-        "nếu không ai có link cũng dùng được API key của bạn."
+        "Mở app ra ngoài localhost (BTH_ALLOWED_HOSTS / BTH_ALLOW_REMOTE) bắt buộc phải đặt BTH_AUTH_PASSWORD "
+        "(hoặc cố ý đặt BTH_DISABLE_AUTH=1 và truyền key qua BTH_API_KEY)."
     )
+if (ALLOWED_HOSTS or ALLOW_ANY_HOST) and not AUTH_PASSWORD:
+    logger.warning(
+        "App công khai KHÔNG đăng nhập: ai có link cũng tạo job và tốn credit LLM. "
+        "Cài đặt key/URL bị khóa, hãy đặt BTH_API_KEY / BTH_BASE_URL bằng biến môi trường."
+    )
+
+
+def _settings_locked() -> bool:
+    """Công khai + không đăng nhập => cấm đổi key/endpoint qua API."""
+    return bool(ALLOWED_HOSTS or os.environ.get("BTH_ALLOW_REMOTE")) and not AUTH_PASSWORD
 
 app.add_middleware(
     CORSMiddleware,
@@ -1059,6 +1076,12 @@ async def api_get_settings() -> Dict[str, Any]:
 @app.post("/api/settings")
 async def api_save_settings(payload: Dict[str, Any]) -> Dict[str, Any]:
     global GLOBAL_SETTINGS
+    if _settings_locked():
+        raise HTTPException(
+            status_code=403,
+            detail="Cài đặt key/endpoint đang bị khóa trên server công khai không đăng nhập. "
+            "Đặt BTH_API_KEY / BTH_BASE_URL bằng biến môi trường.",
+        )
     merged = _merge_job_config(payload)
     GLOBAL_SETTINGS = merged
     _save_settings(GLOBAL_SETTINGS)

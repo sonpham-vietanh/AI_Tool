@@ -368,3 +368,34 @@ def test_public_deploy_without_password_refuses_to_start(tmp_path):
         [sys.executable, "-c", "import backend.main"], cwd=root, env=env_vars, capture_output=True, text=True
     )
     assert good.returncode == 0, good.stderr[-400:]
+
+
+# ------------------------------------------------- public + no login => credentials locked
+def _public_no_auth(monkeypatch):
+    monkeypatch.setattr(m, "ALLOWED_HOSTS", {"books.example.com"})
+    monkeypatch.setattr(m, "AUTH_PASSWORD", "")
+
+
+def test_public_without_login_app_is_open_but_settings_locked(env, monkeypatch):
+    _public_no_auth(monkeypatch)
+    c = TestClient(m.app, base_url="https://books.example.com")
+    assert c.get("/").status_code == 200  # không cần đăng nhập
+    r = c.post("/api/settings", json={"base_url": "https://evil.example/v1"})
+    assert r.status_code == 403
+    assert m.GLOBAL_SETTINGS.base_url != "https://evil.example/v1"
+
+
+def test_public_without_login_job_override_cannot_redirect_key(env, monkeypatch):
+    _public_no_auth(monkeypatch)
+    cfg = m._merge_job_config(
+        {"base_url": "https://evil.example/v1", "api_keys": ["attacker"], "gemini_base_url": "https://evil.example", "model": "m-x"}
+    )
+    assert cfg.base_url == m.GLOBAL_SETTINGS.base_url
+    assert cfg.api_keys == m.GLOBAL_SETTINGS.api_keys
+    assert cfg.gemini_base_url == m.GLOBAL_SETTINGS.gemini_base_url
+    assert cfg.model == "m-x"  # trường không nhạy cảm vẫn đổi được
+
+
+def test_local_mode_settings_not_locked(env):
+    with TestClient(m.app, base_url="http://localhost:8088") as c:
+        assert c.post("/api/settings", json={"concurrency": 5}).status_code == 200
