@@ -410,3 +410,31 @@ def test_discover_endpoint(client, monkeypatch):
     r = client.get("/api/discover", params={"q": "Atomic Habits", "lang": "vi-VN"})
     assert r.status_code == 200 and r.json()["ok"] is True and r.json()["target_lang"] == "vi"
     assert client.get("/api/discover", params={"q": "x"}).status_code == 422  # quá ngắn
+
+
+# ------------------------------------------------- no silent fallback to Google Translate
+def test_job_refused_when_llm_has_no_key_instead_of_silent_google_fallback(env, monkeypatch):
+    monkeypatch.setattr(m, "GLOBAL_SETTINGS", LLMConfig(provider="openai", api_keys=[], gemini_api_keys=[]))
+    with TestClient(m.app, base_url="http://localhost:8088") as c:
+        r = c.post("/api/jobs/auto", json={"query": "Dune"})
+        assert r.status_code == 400 and "API key" in r.json()["detail"] and "BTH_API_KEY" in r.json()["detail"]
+        up = c.post("/api/jobs/upload", files={"file": ("a.txt", b"hello world " * 20)})
+        assert up.status_code == 400
+        assert not m.JOBS  # không tạo job rác
+
+
+def test_explicit_google_free_is_still_allowed_without_key(env, monkeypatch):
+    monkeypatch.setattr(m, "GLOBAL_SETTINGS", LLMConfig(provider="google_free", api_keys=[]))
+    with TestClient(m.app, base_url="http://localhost:8088") as c:
+        assert c.post("/api/jobs/auto", json={"query": "Dune"}).status_code == 200
+
+
+def test_env_model_and_concurrency_defaults(env, monkeypatch):
+    monkeypatch.setenv("BTH_MODEL", "cc/claude-opus-5-5")
+    monkeypatch.setenv("BTH_CONCURRENCY", "7")
+    monkeypatch.setenv("BTH_API_KEY", "sk-env-1234")
+    cfg = m._load_saved_settings()
+    assert cfg.model == "cc/claude-opus-5-5" and cfg.agent_editor_model == "cc/claude-opus-5-5"
+    assert cfg.concurrency == 7 and cfg.api_keys == ["sk-env-1234"]
+    monkeypatch.setenv("BTH_CONCURRENCY", "abc")
+    assert m._load_saved_settings().concurrency == 12

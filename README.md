@@ -46,7 +46,8 @@ App từ chối khởi động nếu mở ra ngoài mà không chọn một tron
 | `BTH_AUTH_USER` / `BTH_AUTH_PASSWORD` | Đăng nhập HTTP Basic cho toàn bộ giao diện và API |
 | `BTH_DISABLE_AUTH` | `1` = cố ý không đăng nhập (xem cảnh báo ở trên) |
 | `BTH_DATA_DIR` | Thư mục dữ liệu (mặc định `/data` trong Docker) |
-| `BTH_API_KEY`, `BTH_BASE_URL` | Key và endpoint LLM mặc định. **Bắt buộc** ở chế độ không đăng nhập |
+| `BTH_API_KEY`, `BTH_BASE_URL` | Key và endpoint LLM mặc định. **Bắt buộc** ở chế độ không đăng nhập. Thiếu key thì app từ chối tạo job (không âm thầm dùng Google Translate) |
+| `BTH_MODEL`, `BTH_CONCURRENCY` | Model dịch mặc định (VD `cc/claude-opus-5-5`) và số luồng song song (mặc định 12) |
 
 **Các bước trên Coolify:**
 1. New Application → nguồn Git (repo này, branch `main`), Build Pack: **Dockerfile**, cổng **8088**.

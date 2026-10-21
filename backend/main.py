@@ -67,12 +67,18 @@ def _load_saved_settings() -> LLMConfig:
             return LLMConfig(**raw)
         except Exception as exc:
             logger.warning("Could not load settings.json: %s", exc)
+    model_env = (os.environ.get("BTH_MODEL") or "").strip() or "cc/claude-sonnet-5-5"
+    try:
+        concurrency_env = max(1, min(32, int(os.environ.get("BTH_CONCURRENCY", "12"))))
+    except ValueError:
+        concurrency_env = 12
     return LLMConfig(
         provider="openai",
         base_url=os.environ.get("BTH_BASE_URL", "https://api.openai.com/v1"),
         api_keys=[os.environ["BTH_API_KEY"]] if os.environ.get("BTH_API_KEY") else [],
-        model="cc/claude-sonnet-5-5",
-        concurrency=12,
+        model=model_env,
+        agent_editor_model=model_env,
+        concurrency=concurrency_env,
         target_lang="Tiếng Việt",
         target_lang_code="vi",
         auto_glossary=True,
@@ -227,6 +233,24 @@ def _public_config_dump(cfg: LLMConfig) -> Dict[str, Any]:
     data["api_keys"] = []
     data["gemini_api_keys"] = []
     return data
+
+
+def _ensure_llm_configured(cfg: LLMConfig) -> None:
+    """Chưa có API key cho nhà cung cấp LLM đã chọn thì KHÔNG được âm thầm rơi về Google Translate miễn phí
+    (bản dịch rất kém, hay trả nguyên tiếng gốc) mà phải báo lỗi rõ ràng ngay."""
+    if cfg.provider in ("google_free", "ollama") or (cfg.model or "").strip().lower() == "gtx-free":
+        return
+    if TranslationLLMClient(config=cfg, cache=default_cache)._effective_provider() == "google_free":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Chưa cấu hình API key cho nhà cung cấp '{cfg.provider}', nên không thể dịch bằng AI "
+                "(nếu cứ chạy, bản dịch sẽ rơi về Google Translate miễn phí rất kém). "
+                "Máy cá nhân: nhập key trong Cài đặt. Server công khai: đặt biến môi trường BTH_API_KEY "
+                "(và BTH_BASE_URL, BTH_MODEL nếu dùng gateway) rồi Redeploy. Muốn dùng Google Translate miễn phí "
+                "thì chọn nhà cung cấp 'google_free' (gtx) một cách chủ động."
+            ),
+        )
 
 
 def _cfg_from_job(job: Dict[str, Any], **updates: Any) -> LLMConfig:
@@ -1153,6 +1177,7 @@ async def api_start_auto_job(req: AutoJobRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail="Vui lòng nhập tên sách cần tìm và dịch.")
 
     cfg = _merge_job_config(req.config)
+    _ensure_llm_configured(cfg)
     job = _create_job_record(
         title=query,
         fmt=req.preferred_format,
@@ -1181,6 +1206,7 @@ async def api_start_from_search_job(req: FromSearchJobRequest) -> Dict[str, Any]
         raise HTTPException(status_code=400, detail=f"Dữ liệu sách không hợp lệ: {exc}")
 
     cfg = _merge_job_config(req.config)
+    _ensure_llm_configured(cfg)
     job = _create_job_record(
         title=book.title,
         fmt=book.format,
@@ -1222,6 +1248,7 @@ async def api_start_upload_job(
         except Exception:
             pass
     cfg = _merge_job_config(cfg_override)
+    _ensure_llm_configured(cfg)
 
     safe_name = f"{_sanitize_slug(Path(file.filename).stem)}_{uuid.uuid4().hex[:6]}.{ext}"
     saved_path = DOWNLOADS_DIR / safe_name
@@ -1321,6 +1348,7 @@ async def api_resume_job(job_id: str) -> Dict[str, Any]:
         )
 
     cfg = _cfg_from_job(job)
+    _ensure_llm_configured(cfg)
     cfg.pause_for_glossary = False
     saved_glossary = list(job.get("glossary") or [])
     if saved_glossary:
@@ -1659,6 +1687,7 @@ async def api_quick_translate(req: QuickTranslateRequest) -> Dict[str, Any]:
 
     t0 = time.perf_counter()
     cfg = _merge_job_config(req.config)
+    _ensure_llm_configured(cfg)
     paragraphs = [p.strip() for p in re.split(r"\n\s*\n", raw_text) if p.strip()]
     if not paragraphs:
         paragraphs = [raw_text]
