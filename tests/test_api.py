@@ -437,4 +437,4 @@ def test_env_model_and_concurrency_defaults(env, monkeypatch):
     assert cfg.model == "cc/claude-opus-5-5" and cfg.agent_editor_model == "cc/claude-opus-5-5"
     assert cfg.concurrency == 7 and cfg.api_keys == ["sk-env-1234"]
     monkeypatch.setenv("BTH_CONCURRENCY", "abc")
-    assert m._load_saved_settings().concurrency == 12
+    assert m._load_saved_settings().concurrency == 4

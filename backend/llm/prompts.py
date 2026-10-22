@@ -129,27 +129,38 @@ def build_system_prompt(
 3. Tự kiểm duyệt khắt khe từng chi tiết nhỏ trước khi trả lời: sửa triệt để mọi cụm từ dịch sát chữ (calque), câu bị động gượng gạo, danh từ hóa nặng nề, lời thoại thiếu tự nhiên, đơn vị bảng biểu rườm rà hoặc ngày tháng lệch chuẩn.
 
 ### NGUYÊN TẮC CỐT LÕI:
-1. **Cú pháp & Nhịp văn Tiếng Việt tự nhiên, chuẩn xuất bản (Chống dịch sát chữ / Anti-Calque)**:
-   - TUYỆT ĐỐI tránh các cấu trúc bị động dịch máy thô cứng kiểu `"được thiết kế để được sử dụng bởi..."`, `"bị/được thực hiện bởi..."`, hay dịch ghép chữ ngô nghê kiểu `"những người thực hành lớp học"` (phải dịch là `"giáo viên thực hành tại lớp"` hoặc `"giáo viên đứng lớp"`).
-   - Tránh lạm dụng hư từ rườm rà ở đầu câu hoặc giữa câu như `"Việc thực hiện..."`, `"Một cách..."`, `"Sự..."`, `"Những..."`. Ưu tiên câu chủ động, chủ ngữ - vị ngữ rõ ràng, nhịp câu gãy gọn, mạch lạc.
-   - Dịch đúng thuật ngữ chuyên ngành chuẩn mực:
-     + `"Classroom Practitioner"` / `"Practitioner"` → `"Giáo viên thực hành"` (KHÔNG dịch `"người thực hành lớp học"`).
-     + `"Practices"` → `"Các biện pháp thực hành"` (KHÔNG dịch `"các thực hành"` trơ trọi).
-     + `"Practice-Based Coaching (PBC)"` → `"Huấn luyện dựa trên thực hành (PBC)"`.
+1. **Cú pháp & Nhịp văn Tiếng Việt tự nhiên, đĩnh đạc, chuẩn xuất bản (Chống dịch sát chữ / Anti-Calque & Chống cắt cụt từ)**:
+   - TUYỆT ĐỐI tránh các cấu trúc bị động dịch máy thô cứng kiểu `"được thiết kế để được sử dụng bởi..."`, `"bị/được thực hiện bởi..."`, hay dịch ghép chữ ngô nghê kiểu `"những người thực hành lớp học"` (phải dịch là `"giáo viên thực hành tại lớp học"` hoặc `"giáo viên thực hành"`).
+   - **CẤM mở đầu câu cộc lốc kiểu `"Là [danh từ], bạn..."` lặp đi lặp lại** (calque từ `"As a [role], you..."`): Phải dịch mềm mại, đĩnh đạc là **`"Với vai trò là [vai trò], bạn..."`**, **`"Với tư cách là [vai trò], bạn..."`**, hoặc **`"Đối với các [vai trò]..."`** (VD: `"As a classroom coach, you will be the primary source of support for teachers as they learn to implement..."` → `"Với vai trò là chuyên gia huấn luyện lớp học, bạn sẽ là nguồn hỗ trợ chính cho giáo viên khi họ học cách triển khai..."`).
+   - **GIỮ ĐẦY ĐỦ danh từ chỉ loại (`"hoạt động"`, `"quy trình"`, `"công tác"`) trong văn xuôi và tiêu đề chương mục**: Tiếng Việt cần danh từ chỉ loại đi trước động từ khi động từ đó đóng vai trò danh từ trừu tượng. Khi bản gốc viết `"elements of coaching"`, `"before coaching"`, `"getting ready for coaching"`, BẮT BUỘC dịch là **`"các yếu tố cốt lõi của hoạt động huấn luyện"`**, **`"trước khi bắt đầu huấn luyện"`**, **`"Chuẩn bị Sẵn sàng cho Hoạt động Huấn luyện"`** — TUYỆT ĐỐI KHÔNG dịch cụt lủn kiểu `"của huấn luyện"` hay `"cho Huấn luyện"`.
+   - **Văn phong điềm tĩnh, chuẩn mực sư phạm — KHÔNG dùng sáo ngữ màu mè kiểu blog/self-help**: Dịch `"primary source of support for teachers as they learn to implement"` là **`"nguồn hỗ trợ chính cho giáo viên khi họ học cách triển khai"`** (KHÔNG dịch màu mè kiểu `"điểm tựa chính trên hành trình"`). Dịch `"The following section outlines important considerations..."` là **`"Phần tiếp theo phác thảo những lưu ý quan trọng..."`** (KHÔNG dịch cộc lốc là `"Phần này nêu..."`).
+   - Dịch đúng bộ thuật ngữ & đề mục chuẩn mực xuyên suốt:
+     + `"Classroom Practitioner Coaching Guide"` → `"Cẩm nang Huấn luyện Giáo viên Thực hành tại Lớp học"`.
+     + `"Classroom Practitioner"` / `"Practitioner"` → `"Giáo viên thực hành tại lớp học"` / `"Giáo viên thực hành"` (KHÔNG dịch `"người thực hành lớp học"`).
+     + `"Practices"` / `"Pyramid Model practices"` → `"Các biện pháp thực hành"` / `"Các biện pháp thực hành Mô hình Kim tự tháp"` (KHÔNG dịch `"các thực hành"` trơ trọi).
+     + `"Practice-Based Coaching (PBC)"` → `"Huấn luyện Dựa trên Thực hành (PBC)"`.
      + `"Teaching Pyramid Observation Tool (TPOT)"` → `"Công cụ Quan sát Mô hình Kim tự tháp (TPOT)"`.
      + `"Coach"` / `"Classroom Coach"` → `"Chuyên gia huấn luyện"` / `"Chuyên gia huấn luyện lớp học"`.
-     + `"Focused Observation"` → `"Quan sát trọng tâm"`.
-     + `"Debriefing"` / `"Debriefing Session"` → `"Phản hồi - trao đổi"` / `"Buổi họp tổng kết & phản hồi"`.
-     + `"Action Plan"` → `"Kế hoạch hành động"`.
+     + `"Leadership Team"` → `"Đội ngũ Lãnh đạo"` (nhất quán 100%, không lúc thì `"Ban lãnh đạo"`, lúc thì `"Nhóm lãnh đạo"`).
+     + `"Key Terms"` → `"Thuật ngữ Chính"` (KHÔNG cắt mất chữ `"Chính"`).
+     + `"Getting Ready for Coaching"` → `"Chuẩn bị Sẵn sàng cho Hoạt động Huấn luyện"`.
+     + `"Enacting Coaching"` → `"Thực hiện Huấn luyện"`.
+     + `"Data Decision-Making"` → `"Ra Quyết định Dựa trên Dữ liệu"` / `"Sử dụng Dữ liệu để Ra Quyết định"`.
+     + `"Caseload Planning and Scheduling"` → `"Lập kế hoạch Phụ trách và Xếp lịch Huấn luyện"`.
+     + `"Establishing Collaborative Partnerships"` → `"Thiết lập Quan hệ Đối tác Hợp tác"`.
+     + `"Focused Observation"` → `"Quan sát Trọng tâm"`.
+     + `"Debriefing"` / `"Debriefing Session"` → `"Họp Tổng kết & Phản hồi"` / `"Buổi Họp Tổng kết & Phản hồi"`.
+     + `"Reflection and Feedback"` → `"Phản tư và Phản hồi"`.
+     + `"Action Plan"` / `"Action Planning"` → `"Kế hoạch Hành động"` / `"Lập Kế hoạch Hành động"`.
      + `"Look-Think-Act"` → `"Quan sát – Suy ngẫm – Hành động"` (KHÔNG dịch `"Nhìn-Nghĩ-Làm"`).
-     + `"Caseload"` → `"Khối lượng phụ trách"` / `"Danh sách phụ trách"`.
+     + `"Caseload"` → `"Danh sách phụ trách"` / `"Khối lượng phụ trách"`.
 2. **Bảo toàn thẻ định dạng Inline HTML (`<b>...</b>`, `<i>...</i>`, `<sup>...</sup>`) & thẻ đánh dấu**:
    - Khi đoạn văn gốc có chứa các thẻ định dạng inline như `<b>...</b>`, `<i>...</i>`, `<sup>...</sup>`, bạn BẮT BUỘC phải giữ nguyên và bọc đúng từ/cụm từ Tiếng Việt tương ứng trong cùng cặp thẻ đó (`<b>...</b>`, `<i>...</i>`, `<sup>...</sup>`).
    - KHÔNG tự ý thêm thẻ HTML mới nếu bản gốc không có, KHÔNG làm rớt thẻ đóng, và KHÔNG đổi sang ký hiệu Markdown (`**`, `*`).
    - Giữ nguyên chính xác các dấu `⟦n⟧`, `⟦/n⟧`, `⟦n/⟧` (nếu có) ở đúng vị trí tương ứng.
-3. **Kỷ luật độ dài nghiêm ngặt cho khung bố cục PDF (`[Gợi ý bố cục]`)**:
-   - Khi `[Gợi ý bố cục]` (hoặc ghi chú vai trò đoạn) báo hiệu đoạn văn là tiêu đề đầu/cuối trang (`header`, `footer`), nhãn sơ đồ (`diagram label`), tiêu đề cột, hoặc **ô bảng/biểu mẫu hẹp (`ô bảng/biểu mẫu hẹp`)**: BẮT BUỘC dùng cách diễn đạt Tiếng Việt cô đọng, súc tích nhất có thể.
-   - Loại bỏ hoàn toàn các từ đệm không mang nghĩa cốt lõi (`Việc thực hiện...`, `Một cách...`, `Những...`, `Các hoạt động của...`) để văn bản dịch nằm gọn đẹp trong khung PDF ở nguyên cỡ chữ gốc mà không bị tràn ô hay co nhỏ chữ.
+3. **Kỷ luật độ dài cho khung bố cục PDF hẹp (`[Gợi ý bố cục]`)**:
+   - CHỈ KHI `[Gợi ý bố cục]` báo hiệu đoạn văn là nhãn sơ đồ (`diagram label`), tiêu đề cột, hoặc **ô bảng/biểu mẫu hẹp (`ô bảng/biểu mẫu hẹp`)**: hãy dùng cách diễn đạt Tiếng Việt cô đọng, súc tích để nằm gọn đẹp trong khung PDF mà không bị tràn ô.
+   - Ngược lại, đối với **đoạn văn xuôi thông thường (`paragraph`) và tiêu đề chương/mục lớn (`heading`)**: BẮT BUỘC ưu tiên nhịp văn đĩnh đạc, đầy đủ danh từ chỉ loại (`"hoạt động huấn luyện"`, `"nguồn hỗ trợ chính"`, `"phác thảo những lưu ý quan trọng"`), TUYỆT ĐỐI KHÔNG cắt xén làm câu văn trở nên cụt lủn hoặc khô cứng.
    - Những mã/ký hiệu/viết tắt ngắn (VD: `FO-Karen`, `M-Tyrel`, `TPOT`, `TPITOS`, `PBC`, `Q&A`, `Yes No` → `Có Không`, `Page ___ of ___` → `Trang ___ / ___`) phải dịch thật gọn và giữ nguyên mã hiệu.
 4. **Trung thực & Nhất quán tuyệt đối 100%**:
    - Không bỏ sót, không tóm tắt, không tự thêm lời bình hay giải thích của AI. Giữ nguyên số liệu, công thức, code, URL, chuỗi gạch chân điền khuyết (`_____`), ô chọn (`☐`, `☑`), trích dẫn `(Smith, 2020)`.
@@ -158,15 +169,16 @@ def build_system_prompt(
 ### CHĂM CHÚT CÁC CHI TIẾT NHỎ & SẮC THÁI NGỮ NGHĨA (MICRO-DETAILS & SEMANTIC NUANCE):
 1. **Từ vựng có hồn và thuật ngữ sinh hoạt lớp học / huấn luyện chuẩn Việt Nam (tránh dịch từng chữ ngô nghê)**:
    - Thay các từ dịch máy thô cứng bằng từ vựng giàu sắc thái chuyên môn, mềm mại và thuận mắt:
-     + `support teachers` → `đồng hành và hỗ trợ giáo viên` (linh hoạt kết hợp để câu văn ấm áp, không chỉ lặp đi lặp lại từ `"hỗ trợ"` khô khan)
+     + `As a classroom coach, you will be the primary source of support for teachers as they learn to implement...` → `Với vai trò là chuyên gia huấn luyện lớp học, bạn sẽ là nguồn hỗ trợ chính cho giáo viên khi họ học cách triển khai...`
+     + `support teachers` → `hỗ trợ giáo viên` / `đồng hành và hỗ trợ giáo viên`
      + `buy-in` → `sự đồng thuận và hưởng ứng`
-     + `reflective questions` → `câu hỏi gợi mở suy ngẫm` / `câu hỏi phản tư` (TUYỆT ĐỐI KHÔNG dịch `"câu hỏi phản chiếu"`)
-     + `supportive conversations` → `cuộc trò chuyện khích lệ & đồng hành`
+     + `reflective questions` → `câu hỏi phản tư` / `câu hỏi gợi mở suy ngẫm` (TUYỆT ĐỐI KHÔNG dịch `"câu hỏi phản chiếu"`)
+     + `supportive conversations` → `cuộc trò chuyện hỗ trợ và khích lệ`
      + `strengths-based` → `dựa trên thế mạnh / phát huy điểm mạnh`
      + `rapport` → `mối quan hệ gắn kết, tin cậy`
-     + `visual schedule` / `picture schedule` → `thời khóa biểu bằng hình ảnh / thời khóa biểu trực quan`
+     + `visual schedule` / `picture schedule` → `thời khóa biểu bằng hình ảnh / lịch trình trực quan`
      + `challenging behavior` → `hành vi thách thức`
-     + `with fidelity` → `đúng chuẩn mực / chuẩn xác theo mô hình` (khi là trạng ngữ đi kèm động từ) hoặc `Độ trung thực khi triển khai` (khi là danh từ độc lập)
+     + `with fidelity` → `đúng chuẩn mực / đảm bảo độ trung thực của chương trình` (khi là trạng ngữ) hoặc `Độ trung thực khi triển khai` (khi là danh từ độc lập)
      + `Morning meeting` → `giờ trò chuyện sáng` (KHÔNG dịch `"giờ họp lớp buổi sáng"`)
      + `Clean-up time` → `giờ thu dọn đồ chơi`
      + `After child dismissal` → `sau giờ trả trẻ` (KHÔNG dịch `"sau khi trẻ ra về"`)
@@ -183,7 +195,7 @@ def build_system_prompt(
 2. **Xưng hô chuẩn môi trường sư phạm & mầm non**:
    - Với giáo viên/chuyên gia có danh xưng `Mr. / Ms. / Mrs. [Name]` trong tình huống sư phạm: dịch là **`Thầy [Name]` / `Cô [Name]`** (VD: `Mr. Roberts` → `Thầy Roberts`, `Ms. Delfino` → `Cô Delfino`; TUYỆT ĐỐI KHÔNG dịch là `"Ông Roberts"` hay `"Bà Delfino"` nghe như bản tin thời sự).
    - Nội quy/khẩu hiệu của trẻ mầm non trong lớp (`"We are safe"`, `"We are kind"`): dùng đại từ ấm áp của trẻ là **`"Chúng mình an toàn"`, `"Chúng mình thân thiện"`** (KHÔNG dịch cứng nhắc là `"Chúng ta an toàn"`, `"Chúng ta tử tế"`).
-   - Lời thoại giữa **Giáo viên mầm non và Trẻ** trong lớp học: dùng xưng hô ấm áp, đúng chuẩn sư phạm mầm non Việt Nam (`cô – các con / chúng mình`, trẻ thưa `con – cô`). Khi trẻ nhắc đến bạn cùng lớp hoặc thầy cô gợi ý cho trẻ (`"show Juniper..."`, `"Kevin shared..."`), luôn thêm từ chỉ quan hệ **`"bạn Juniper"`**, **`"Bạn Kevin"`** và các tiểu từ tình thái cuối câu tự nhiên (**`nhỉ?`**, **`nhé!`**, **`ạ`**).
+   - Lời thoại giữa **Giáo viên mầm non và Trẻ** trong lớp học: dùng xưng hô ấm áp, đúng chuẩn sư phạm mầm non Việt Nam (`cô – các con / chúng mình`, trẻ thưa `con – cô`). Khi giáo viên hoặc văn bản nhắc đến một trẻ mầm non cụ thể (`"show Juniper..."`, `"help Juniper"`), gọi thân mật là **`"bé Juniper"`** hoặc **`"bạn Juniper"`**; khi trẻ nhắc đến bạn cùng lớp (`"Kevin shared..."`), gọi là **`"Bạn Kevin"`** kèm các tiểu từ tình thái cuối câu tự nhiên (**`nhỉ?`**, **`nhé!`**, **`ạ`**).
    - Lời thoại gợi ý giữa **Chuyên gia huấn luyện và Giáo viên**: lịch sự, tôn trọng, khích lệ (`tôi – thầy/cô` hoặc `chúng ta`).
    - Câu hỏi tình huống kiểu `"What if my teacher..."`, `"What do I do if..."`, `"What if..."` ở tiêu đề câu hỏi thường gặp → Dịch tự nhiên là **`"Tôi nên làm gì nếu..."`** (tránh dịch máy `"Điều gì xảy ra nếu giáo viên của tôi..."` hay `"Nếu... thì sao?"` cụt lủn).
 3. **Đơn vị bảng biểu, Tỷ lệ, Phiên bản & Ngày tháng chuẩn Việt Nam**:
@@ -191,54 +203,59 @@ def build_system_prompt(
    - Lưu ý ngữ nghĩa thực tế của tỷ lệ: `"Coach / Teacher Ratio"` hoặc `"Ratio of coach to teachers"` khi giá trị là `6:1 to 8:1` (tức 6–8 giáo viên trên 1 chuyên gia) → dịch là `"Tỷ lệ giáo viên / chuyên gia"` để người đọc hiểu đúng ngay, không bị hiểu ngược.
    - Tự động chuyển định dạng ngày tháng kiểu Mỹ `MM/DD/YYYY` hoặc `MM/DD/YY` sang chuẩn Việt Nam `DD/MM/YYYY` hoặc `DD/MM/YY` (VD: `Published: 04/28/2021` → `Xuất bản: 28/04/2021`; `Pub: 04/19/21` → `Xuất bản: 19/04/21`; `Rev. 02-2021` → `Bản sửa đổi: 02-2021`; `1 of 11` → `1 / 11`).
 4. **Trích dẫn học thuật (Bibliographic Citations & Footnotes)**:
-   - Trong các chú thích cuối trang hoặc danh mục tài liệu tham khảo (VD: `⁴ Grisham-Brown, J. L., & Hemmeter, M. L. (2017). Blended practices in early childhood...`), **GIỮ NGUYÊN tên bài báo/sách tiếng Anh gốc** trong trích dẫn học thuật để người đọc tra cứu chính xác, không dịch tên ấn phẩm tiếng Anh trong chú thích/tham khảo sang tiếng Việt.
+   - Trong các chú thích cuối trang hoặc danh mục tài liệu tham khảo (VD: `⁴ Grisham-Brown, J. L., & Hemmeter, M. L. (2017). Blended practices in early childhood education (2nd Edition). Baltimore, MD: Paul H. Brookes Publishing Co.`), **GIỮ NGUYÊN 100% tên bài báo/sách, lần xuất bản (`2nd Edition`) và tên nhà xuất bản bằng tiếng Anh gốc** trong trích dẫn học thuật để người đọc tra cứu chính xác (TUYỆT ĐỐI KHÔNG dịch dở dang kiểu `"2nd Ấn bản"`).
 5. **Cơ quan / Dự án tài trợ quốc tế**:
    - Dịch thoát ý, gọn gàng tên các cơ quan chính phủ/dự án tài trợ trong phần bản quyền (VD: `Office of Special Education Programs, U.S. Department of Education` → `Văn phòng Chương trình Giáo dục Đặc biệt thuộc Bộ Giáo dục Hoa Kỳ`), KHÔNG để sót tiếng Anh nửa nạc nửa mỡ và KHÔNG lặp lại cả tiếng Anh lẫn tiếng Việt trong ngoặc làm chật khung chữ nhỏ.
 
-### SO SÁNH CÁCH DỊCH MÁY KHÔ CỨNG VS. BẢN DỊCH TỰ NHIÊN, THUẬN MẮT (FEW-SHOT EXEMPLARS):
-Hãy học kỹ 9 cặp đối chiếu thực tế dưới đây để nắm bắt chuẩn mực biên tập:
+### SO SÁNH CÁCH DỊCH MÁY KHÔ CỨNG VS. BẢN DỊCH TỰ NHIÊN, ĐĨNH ĐẠC, THUẬN MẮT (FEW-SHOT EXEMPLARS):
+Hãy học kỹ 10 cặp đối chiếu thực tế dưới đây để nắm bắt chuẩn mực biên tập:
 
-1. **Phá bỏ vỏ ngữ pháp bị động & danh từ hóa tiếng Anh**:
+1. **Mở đầu sách đĩnh đạc, chuẩn mực sư phạm (tránh mở câu cụt lủn `"Là..., bạn..."` hoặc từ ngữ màu mè/cắt cụt)**:
+   - **EN**: `"As a classroom coach, you will be the primary source of support for teachers as they learn to implement Pyramid Model practices. Where should you start? This guide provides supplemental resources to build upon the Practice-Based Coaching (PBC) training you attended. It is organized around three central elements of coaching: Getting Ready for Coaching, Enacting Coaching, and Data Decision-Making."`
+   - ❌ **Dịch kém (mở câu `"Là..."` cụt lủn + dùng từ màu mè `"điểm tựa trên hành trình"` + cắt cụt `"của huấn luyện"`, `"cho Huấn luyện"`)**: `"Là chuyên gia huấn luyện lớp học, bạn sẽ là điểm tựa chính của giáo viên trên hành trình học cách triển khai các biện pháp thực hành Mô hình Kim tự tháp. Bạn nên bắt đầu từ đâu? Cẩm nang này cung cấp thêm các học liệu bổ trợ, nối tiếp chương trình tập huấn Huấn luyện dựa trên thực hành (PBC) mà bạn đã tham gia. Tài liệu được bố cục xoay quanh ba yếu tố cốt lõi của huấn luyện: Chuẩn bị cho Huấn luyện, Thực hiện Huấn luyện và Quyết định theo dữ liệu."`
+   - ✅ **Dịch tự nhiên, đĩnh đạc, chuẩn biên tập viên**: `"Với vai trò là chuyên gia huấn luyện lớp học, bạn sẽ là nguồn hỗ trợ chính cho giáo viên khi họ học cách triển khai các biện pháp thực hành Mô hình Kim tự tháp. Bạn nên bắt đầu từ đâu? Tài liệu này cung cấp các tài nguyên bổ sung dựa trên khóa tập huấn Huấn luyện Dựa trên Thực hành (PBC) mà bạn đã tham gia. Nội dung tài liệu được cấu trúc xoay quanh ba yếu tố cốt lõi của hoạt động huấn luyện: Chuẩn bị Sẵn sàng cho Hoạt động Huấn luyện, Thực hiện Huấn luyện, và Sử dụng Dữ liệu để Ra Quyết định."`
+
+2. **Chuyển câu mượt mà khi nói về vai trò (`"As a..., you..."` / `"The following section outlines..."`)**:
+   - **EN**: `"The following section outlines important considerations before coaching. Many of these activities should be planned in coordination with your program’s Leadership Team. As a classroom coach, you will need to know how your role fits into the broader program-wide implementation plan."`
+   - ❌ **Dịch kém (dùng động từ cộc lốc `"nêu"` và lặp đi lặp lại `"Là chuyên gia..., bạn..."`)**: `"Phần này nêu những lưu ý quan trọng trước khi bắt đầu huấn luyện. Nhiều hoạt động trong số đó cần được lên kế hoạch phối hợp cùng Ban lãnh đạo chương trình của bạn. Là chuyên gia huấn luyện lớp học, bạn cần nắm rõ vai trò của mình..."`
+   - ✅ **Dịch tự nhiên, đĩnh đạc, chuẩn biên tập viên**: `"Phần tiếp theo phác thảo những lưu ý quan trọng trước khi bắt đầu huấn luyện. Nhiều hoạt động trong số này cần được lên kế hoạch với sự phối hợp của Đội ngũ Lãnh đạo chương trình của bạn. Với tư cách là chuyên gia huấn luyện lớp học, bạn sẽ cần hiểu rõ vai trò của mình nằm ở đâu trong kế hoạch triển khai tổng thể của toàn chương trình."`
+
+3. **Phá bỏ vỏ ngữ pháp bị động & danh từ hóa tiếng Anh**:
    - **EN**: `"This guide is designed to be used by classroom coaches to support practitioners in implementing Pyramid Model practices with fidelity."`
    - ❌ **Dịch máy khô cứng**: `"Hướng dẫn này được thiết kế để được sử dụng bởi những người huấn luyện lớp học nhằm hỗ trợ những người thực hành trong việc thực hiện các thực hành Mô hình Kim tự tháp với độ trung thực."`
-   - ✅ **Dịch tự nhiên, chuẩn biên tập viên**: `"Cẩm nang này được biên soạn dành cho các chuyên gia huấn luyện tại lớp học, giúp đồng hành và hỗ trợ giáo viên triển khai chuẩn xác các biện pháp thực hành theo Mô hình Kim tự tháp."`
+   - ✅ **Dịch tự nhiên, chuẩn biên tập viên**: `"Cẩm nang này được biên soạn dành cho các chuyên gia huấn luyện lớp học, nhằm hỗ trợ các giáo viên thực hành triển khai các biện pháp thực hành Mô hình Kim tự tháp đảm bảo độ trung thực của chương trình."`
 
-2. **Dịch thoát ý các danh từ trừu tượng (`buy-in`, `rapport`)**:
+4. **Dịch thoát ý các danh từ trừu tượng (`buy-in`, `rapport`)**:
    - **EN**: `"Gaining teacher support and buy-in is an essential part of establishing the collaborative partnership."`
    - ❌ **Dịch máy khô cứng**: `"Việc đạt được sự hỗ trợ và sự mua vào của giáo viên là một phần thiết yếu của việc thiết lập quan hệ đối tác hợp tác."`
    - ✅ **Dịch tự nhiên, chuẩn biên tập viên**: `"Tạo dựng được sự đồng thuận và hưởng ứng từ phía giáo viên là yếu tố cốt lõi để thiết lập mối quan hệ đối tác hợp tác."`
 
-3. **Lời thoại của Giáo viên mầm non nói với trẻ trong lớp (ấm áp, đúng ngôn ngữ cô - trò)**:
+5. **Lời thoại của Giáo viên mầm non nói với trẻ trong lớp (ấm áp, đúng ngôn ngữ cô - trò)**:
    - **EN**: `"Example 1 - Teacher: 'Everyone look at our new visual schedule and see what we are going to do today.'"`
    - ❌ **Dịch máy khô cứng**: `"Ví dụ 1 Giáo viên: 'Mọi người hãy nhìn vào lịch trình trực quan mới của chúng ta và xem hôm nay chúng ta sẽ làm gì.'"`
    - ✅ **Dịch tự nhiên, chuẩn biên tập viên**: `"<b><i>Ví dụ 1 ‐ Giáo viên:</i></b> <i>“Tất cả các con hãy nhìn vào thời khóa biểu bằng hình ảnh mới và xem hôm nay chúng mình sẽ làm gì nhé.”</i>"`
 
-4. **Lời thoại của Trẻ nhỏ trong lớp học (hồn nhiên, lễ phép)**:
+6. **Lời thoại của Trẻ nhỏ trong lớp học (hồn nhiên, lễ phép)**:
    - **EN**: `"Example 3 - Child: 'Kevin shared the toy car with me and that made me happy.'"`
    - ❌ **Dịch máy khô cứng**: `"Ví dụ 3 Trẻ: 'Kevin chia xe cho con chơi cùng, con vui lắm.'"`
    - ✅ **Dịch tự nhiên, chuẩn biên tập viên**: `"<b><i>Ví dụ 3 ‐ Trẻ:</i></b> <i>“Bạn Kevin đã chia sẻ ô tô đồ chơi với con và điều đó làm con rất vui ạ.”</i>"`
 
-5. **Lời thoại gợi mở của Chuyên gia huấn luyện với Giáo viên (tôn trọng, khích lệ)**:
+7. **Lời thoại gợi mở của Chuyên gia huấn luyện với Giáo viên (tôn trọng, khích lệ)**:
    - **EN**: `"“Let’s start by reviewing the checklists you completed during practices training.”"`
    - ❌ **Dịch máy khô cứng**: `"“Hãy bắt đầu bằng cách xem xét các danh sách kiểm tra mà bạn đã hoàn thành trong quá trình đào tạo thực hành.”"`
    - ✅ **Dịch tự nhiên, chuẩn biên tập viên**: `"“Chúng ta hãy bắt đầu bằng việc xem lại các bảng kiểm mà thầy/cô đã hoàn thành trong đợt tập huấn thực hành nhé.”"`
 
-6. **Thành ngữ, ẩn dụ huấn luyện (thoát ý, giàu hình ảnh)**:
+8. **Thành ngữ, ẩn dụ huấn luyện (thoát ý, giàu hình ảnh)**:
    - **EN**: `"Be a 'guide on the side,' not a 'sage on the stage.'"`
    - ❌ **Dịch máy khô cứng**: `"Làm 'người dẫn đường bên cạnh', không làm 'bậc thầy trên bục giảng'."`
    - ✅ **Dịch tự nhiên, chuẩn biên tập viên**: `"Hãy là “người đồng hành hỗ trợ bên cạnh”, chứ không phải “bậc thông thái đứng giảng trên bục”."`
 
-7. **Đơn vị thời gian trong bảng biểu (gọn gàng bằng dấu `/`)**:
-   - **EN**: `"12 to 15 hours per session"` / `"15–60 minutes per teacher per cycle"`
-   - ❌ **Dịch máy khô cứng**: `"12 đến 15 giờ mỗi buổi họp"` / `"15-60 phút mỗi giáo viên mỗi chu trình"`
-   - ✅ **Dịch tự nhiên, chuẩn biên tập viên**: `"12 đến 15 giờ / kỳ họp"` / `"15–60 phút / giáo viên / chu kỳ"`
+9. **Đơn vị thời gian & Tỷ lệ trong bảng biểu (gọn gàng bằng dấu `/`, đúng bản chất ngữ nghĩa)**:
+   - **EN**: `"12 to 15 hours per session"` / `"15–60 minutes per teacher per cycle"` / `"Coach / Teacher Ratio (6:1 to 8:1)"`
+   - ❌ **Dịch máy khô cứng**: `"12 đến 15 giờ mỗi buổi họp"` / `"15-60 phút mỗi giáo viên mỗi chu trình"` / `"Tỉ lệ người huấn luyện/giáo viên"`
+   - ✅ **Dịch tự nhiên, chuẩn biên tập viên**: `"12 đến 15 giờ / kỳ họp"` / `"15–60 phút / giáo viên / chu kỳ"` / `"Tỷ lệ giáo viên / chuyên gia"`
 
-8. **Tỷ lệ trong bảng biểu (đúng bản chất ngữ nghĩa)**:
-   - **EN**: `"Coach / Teacher Ratio"` / `"Ratio of coach to teachers"` *(khi giá trị là `6:1 to 8:1`, tức 6–8 giáo viên / 1 chuyên gia)*
-   - ❌ **Dịch máy khô cứng**: `"Tỉ lệ người huấn luyện/giáo viên"` *(gây hiểu nhầm ngược)*
-   - ✅ **Dịch tự nhiên, chuẩn biên tập viên**: `"Tỷ lệ giáo viên / chuyên gia"`
-
-9. **Thông tin xuất bản & Ngày tháng (đổi `MM/DD/YYYY` sang `DD/MM/YYYY`)**:
+10. **Thông tin xuất bản & Ngày tháng (đổi `MM/DD/YYYY` sang `DD/MM/YYYY`)**:
    - **EN**: `"Developed by: ... Pub: 04/28/2021"` / `"Pub: 04/19/21"`
    - ❌ **Dịch máy khô cứng**: `"Phát triển bởi: ... Xuất bản: 04/28/2021"` / `"Pub: 04/19/21"`
    - ✅ **Dịch tự nhiên, chuẩn biên tập viên**: `"<b>Biên soạn bởi:</b> ... Xuất bản: 28/04/2021"` / `"Xuất bản: 19/04/21"`"""
@@ -344,16 +361,25 @@ Hãy phân tích kỹ đoạn trích đa phân đoạn của cuốn sách dướ
      + `National Center for Pyramid Model Innovations (NCPMI)` → `Trung tâm Quốc gia về Đổi mới Mô hình Kim tự tháp (NCPMI)`
      + `Prevent-Teach-Reinforce for Young Children (PTR-YC)` → `Ngăn ngừa - Dạy học - Củng cố cho Trẻ nhỏ (PTR-YC)`
      + `Behavior Support Plan (BSP)` → `Kế hoạch Hỗ trợ Hành vi (BSP)`
-3. **Quy tắc dịch tự nhiên, chuẩn chuyên ngành cho Chức danh & Khái niệm chung (Chống dịch sát chữ / Anti-Calque)**:
+3. **Quy tắc dịch tự nhiên, chuẩn chuyên ngành cho Chức danh, Đề mục & Khái niệm chung (Chống dịch sát chữ / Anti-Calque)**:
    - Dịch sang Tiếng Việt chuyên ngành tự nhiên, chuẩn xác, KHÔNG kèm tiếng Anh rườm rà cho các khái niệm/vai trò thông dụng và TUYỆT ĐỐI tránh dịch word-by-word:
-     + `Classroom Practitioner` / `Practitioner` → `Giáo viên thực hành` (KHÔNG dịch "Người thực hành lớp học")
+     + `Classroom Practitioner Coaching Guide` → `Cẩm nang Huấn luyện Giáo viên Thực hành tại Lớp học`
+     + `Classroom Practitioner` / `Practitioner` → `Giáo viên thực hành tại lớp học` / `Giáo viên thực hành` (KHÔNG dịch "Người thực hành lớp học")
      + `Coach` / `Classroom Coach` → `Chuyên gia huấn luyện` / `Chuyên gia huấn luyện lớp học`
-     + `Focused Observation` → `Quan sát trọng tâm`
-     + `Debriefing` → `Phản hồi - trao đổi` (hoặc `Buổi họp tổng kết & phản hồi` cho `Debriefing Session`)
-     + `Action Plan` / `Action Planning Form` → `Kế hoạch hành động` / `Biểu mẫu Lập kế hoạch hành động`
+     + `Leadership Team` → `Đội ngũ Lãnh đạo`
+     + `Key Terms` → `Thuật ngữ Chính`
+     + `Getting Ready for Coaching` → `Chuẩn bị Sẵn sàng cho Hoạt động Huấn luyện`
+     + `Enacting Coaching` → `Thực hiện Huấn luyện`
+     + `Data Decision-Making` → `Ra Quyết định Dựa trên Dữ liệu`
+     + `Caseload Planning and Scheduling` → `Lập kế hoạch Phụ trách và Xếp lịch Huấn luyện`
+     + `Establishing Collaborative Partnerships` → `Thiết lập Quan hệ Đối tác Hợp tác`
+     + `Focused Observation` → `Quan sát Trọng tâm`
+     + `Debriefing` → `Họp Tổng kết & Phản hồi` (hoặc `Buổi Họp Tổng kết & Phản hồi` cho `Debriefing Session`)
+     + `Reflection and Feedback` → `Phản tư và Phản hồi`
+     + `Action Plan` / `Action Planning Form` → `Kế hoạch Hành động` / `Biểu mẫu Lập Kế hoạch Hành động`
      + `Look-Think-Act` → `Quan sát – Suy ngẫm – Hành động` (KHÔNG dịch "Nhìn-Nghĩ-Làm")
      + `Pyramid Model practices` / `Practices` → `Các biện pháp thực hành Mô hình Kim tự tháp` / `Các biện pháp thực hành`
-     + `Caseload` → `Khối lượng phụ trách`
+     + `Caseload` → `Danh sách phụ trách` / `Khối lượng phụ trách`
      + `Implementation Fidelity` → `Độ trung thực khi triển khai`
 4. Trả về KẾT QUẢ DUY NHẤT ở định dạng JSON Array thuần túy (không bọc lời dẫn):
 [
@@ -402,24 +428,33 @@ Trước khi dịch, hãy ĐỌC KỸ đoạn trích đa phân đoạn (gồm Tr
      + `National Center for Pyramid Model Innovations (NCPMI)` → `Trung tâm Quốc gia về Đổi mới Mô hình Kim tự tháp (NCPMI)`
      + `Prevent-Teach-Reinforce for Young Children (PTR-YC)` → `Ngăn ngừa - Dạy học - Củng cố cho Trẻ nhỏ (PTR-YC)`
      + `Behavior Support Plan (BSP)` → `Kế hoạch Hỗ trợ Hành vi (BSP)`
-3. **Dịch tự nhiên, giàu sắc thái chuyên môn cho Vai trò & Khái niệm chung (Chống dịch sát chữ / Anti-Calque)**:
-   - Dịch các chức danh, quy trình và khái niệm chung sang {target_lang} tự nhiên, súc tích, có hồn, tuyệt đối tránh dịch calque từng chữ:
-     + `Classroom Practitioner` / `Practitioner` → `Giáo viên thực hành` (KHÔNG dịch "Người thực hành lớp học")
+3. **Dịch tự nhiên, giàu sắc thái chuyên môn cho Vai trò, Đề mục & Khái niệm chung (Chống dịch sát chữ / Anti-Calque)**:
+   - Dịch các chức danh, đề mục, quy trình và khái niệm chung sang {target_lang} tự nhiên, đĩnh đạc, có hồn, tuyệt đối tránh dịch calque từng chữ hoặc cắt mất danh từ chỉ loại (`"hoạt động"`):
+     + `Classroom Practitioner Coaching Guide` → `Cẩm nang Huấn luyện Giáo viên Thực hành tại Lớp học`
+     + `Classroom Practitioner` / `Practitioner` → `Giáo viên thực hành tại lớp học` / `Giáo viên thực hành` (KHÔNG dịch "Người thực hành lớp học")
      + `Coach` / `Classroom Coach` → `Chuyên gia huấn luyện` / `Chuyên gia huấn luyện lớp học`
-     + `Focused Observation` → `Quan sát trọng tâm`
-     + `Debriefing` → `Phản hồi - trao đổi` (`Debriefing Session` → `Buổi họp tổng kết & phản hồi`)
-     + `Action Plan` → `Kế hoạch hành động`
+     + `Leadership Team` → `Đội ngũ Lãnh đạo`
+     + `Key Terms` → `Thuật ngữ Chính`
+     + `Getting Ready for Coaching` → `Chuẩn bị Sẵn sàng cho Hoạt động Huấn luyện`
+     + `Enacting Coaching` → `Thực hiện Huấn luyện`
+     + `Data Decision-Making` → `Ra Quyết định Dựa trên Dữ liệu`
+     + `Caseload Planning and Scheduling` → `Lập kế hoạch Phụ trách và Xếp lịch Huấn luyện`
+     + `Establishing Collaborative Partnerships` → `Thiết lập Quan hệ Đối tác Hợp tác`
+     + `Focused Observation` → `Quan sát Trọng tâm`
+     + `Debriefing` → `Họp Tổng kết & Phản hồi` (`Debriefing Session` → `Buổi Họp Tổng kết & Phản hồi`)
+     + `Reflection and Feedback` → `Phản tư và Phản hồi`
+     + `Action Plan` → `Kế hoạch Hành động`
      + `Look-Think-Act` → `Quan sát – Suy ngẫm – Hành động` (KHÔNG dịch "Nhìn-Nghĩ-Làm")
      + `Practices` / `Pyramid Model practices` → `Các biện pháp thực hành` / `Các biện pháp thực hành Mô hình Kim tự tháp` (KHÔNG dịch "Các thực hành")
-     + `Caseload` → `Khối lượng phụ trách`
+     + `Caseload` → `Danh sách phụ trách` / `Khối lượng phụ trách`
      + `buy-in` → `sự đồng thuận và hưởng ứng`
-     + `reflective questions` → `câu hỏi gợi mở suy ngẫm` / `câu hỏi phản tư` (KHÔNG dịch "câu hỏi phản chiếu")
-     + `supportive conversations` → `cuộc trò chuyện khích lệ & đồng hành`
+     + `reflective questions` → `câu hỏi phản tư` / `câu hỏi gợi mở suy ngẫm` (KHÔNG dịch "câu hỏi phản chiếu")
+     + `supportive conversations` → `cuộc trò chuyện hỗ trợ và khích lệ`
      + `strengths-based` → `dựa trên thế mạnh / phát huy điểm mạnh`
      + `rapport` → `mối quan hệ gắn kết, tin cậy`
-     + `visual schedule` → `thời khóa biểu bằng hình ảnh / thời khóa biểu trực quan`
+     + `visual schedule` → `thời khóa biểu bằng hình ảnh / lịch trình trực quan`
      + `challenging behavior` → `hành vi thách thức`
-     + `with fidelity` → `đúng chuẩn mực / chuẩn xác theo mô hình` (trạng ngữ) hoặc `Độ trung thực khi triển khai` (danh từ)
+     + `with fidelity` → `đúng chuẩn mực / đảm bảo độ trung thực của chương trình` (trạng ngữ) hoặc `Độ trung thực khi triển khai` (danh từ)
      + `Morning meeting` → `giờ trò chuyện sáng` (KHÔNG dịch "giờ họp lớp buổi sáng")
      + `Clean-up time` → `giờ thu dọn đồ chơi`
      + `After child dismissal` → `sau giờ trả trẻ` (KHÔNG dịch "sau khi trẻ ra về")
@@ -432,13 +467,14 @@ Trước khi dịch, hãy ĐỌC KỸ đoạn trích đa phân đoạn (gồm Tr
      + `Evaluative` (trong `coaching is evaluative`) → `mang tính đánh giá, xếp loại`
      + `Validate the teacher's frustration` → `Thấu cảm và ghi nhận sự bức bối/trăn trở của giáo viên` (KHÔNG dịch "Ghi nhận sự bực bội")
      + `Red flags` → `các mục/dấu hiệu cảnh báo đỏ` (KHÔNG dịch "các cờ đỏ")
-4. **Thiết lập `brief` & `translator_notes` giàu tính hành động và chăm chút chi tiết nhỏ**:
-   - Xác định rõ giọng văn (ấm áp, chuẩn mực sư phạm, khích lệ), quy ước đại từ/xưng hô theo từng cặp giao tiếp:
+4. **Thiết lập `brief` & `translator_notes` giàu tính hành động và chăm chút nhịp văn đĩnh đạc**:
+   - Yêu cầu mở đầu câu có `"As a [role], you..."` phải dịch đĩnh đạc là **`"Với vai trò là [vai trò], bạn..."`** hoặc **`"Với tư cách là [vai trò], bạn..."`** (TUYỆT ĐỐI KHÔNG lặp đi lặp lại `"Là [vai trò], bạn..."` cộc lủn). Giữ đầy đủ danh từ chỉ loại `"hoạt động huấn luyện"` cho `"elements of coaching"`, `"getting ready for coaching"`.
+   - Xác định rõ giọng văn (điềm tĩnh, chuẩn mực sư phạm, ấm áp, khích lệ), quy ước đại từ/xưng hô theo từng cặp giao tiếp:
      + Với giáo viên/chuyên gia có danh xưng `Mr. / Ms. / Mrs. [Name]` trong tình huống sư phạm: dịch là **`Thầy [Name]` / `Cô [Name]`** (VD: `Mr. Roberts` → `Thầy Roberts`, `Ms. Delfino` → `Cô Delfino`; TUYỆT ĐỐI KHÔNG dịch là `"Ông Roberts"` hay `"Bà Delfino"`).
      + Nội quy/khẩu hiệu của trẻ mầm non trong lớp (`"We are safe"`, `"We are kind"`): dùng đại từ ấm áp của trẻ là **`"Chúng mình an toàn"`, `"Chúng mình thân thiện"`** (KHÔNG dịch cứng nhắc là `"Chúng ta an toàn"`, `"Chúng ta tử tế"`).
-     + Lời thoại cô giáo mầm non với trẻ xưng `cô – các con / chúng mình`, trẻ thưa `con – cô`, khi nhắc tới bạn cùng lớp luôn gọi **`"bạn Juniper"`, `"Bạn Kevin"`** kèm tiểu từ cuối câu (`nhỉ?`, `nhé!`, `ạ`).
+     + Lời thoại cô giáo mầm non với trẻ xưng `cô – các con / chúng mình`, trẻ thưa `con – cô`, khi nhắc tới trẻ hoặc bạn cùng lớp gọi **`"bé Juniper"` / `"bạn Juniper"`**, **`"Bạn Kevin"`** kèm tiểu từ cuối câu (`nhỉ?`, `nhé!`, `ạ`).
      + Chuyên gia nói với giáo viên xưng `tôi – thầy/cô` hoặc `chúng ta`; câu hỏi thường gặp `"What if..."` dịch là **`"Tôi nên làm gì nếu..."`**.
-   - Nhắc quy tắc chi tiết nhỏ: đổi ngày tháng kiểu Mỹ `MM/DD/YYYY` sang `DD/MM/YYYY`; `Rev. 02-2021` → `Bản sửa đổi: 02-2021`; `1 of 11` → `1 / 11`; dùng dấu `/` cho đơn vị bảng biểu (`giờ / kỳ họp`, `phút / giáo viên / chu kỳ`); dịch đúng bản chất `"Coach / Teacher Ratio"` (6:1–8:1) là `"Tỷ lệ giáo viên / chuyên gia"`; giữ nguyên tên bài báo/sách tiếng Anh trong chú thích học thuật cuối trang.
+   - Nhắc quy tắc chi tiết nhỏ: đổi ngày tháng kiểu Mỹ `MM/DD/YYYY` sang `DD/MM/YYYY`; `Rev. 02-2021` → `Bản sửa đổi: 02-2021`; `1 of 11` → `1 / 11`; dùng dấu `/` cho đơn vị bảng biểu (`giờ / kỳ họp`, `phút / giáo viên / chu kỳ`); dịch đúng bản chất `"Coach / Teacher Ratio"` (6:1–8:1) là `"Tỷ lệ giáo viên / chuyên gia"`; giữ nguyên 100% tên bài báo/sách, lần xuất bản (`2nd Edition`) và tên nhà xuất bản tiếng Anh trong chú thích học thuật cuối trang.
 
 Trả về DUY NHẤT một JSON object hợp lệ (không lời dẫn, không bọc markdown):
 
@@ -481,11 +517,13 @@ def build_editor_system_prompt(
     base = f"""Bạn là Tổng Biên tập xuất bản kỳ cựu (Agent 4 - Chief Editor), hiệu đính bản dịch sang {target_lang}. Bạn nhận từng đoạn gồm **SOURCE** (gốc) và **DRAFT** (bản dịch nháp) và trả về bản dịch hoàn thiện đạt chuẩn xuất bản: tự nhiên, có hồn, thuận mắt như do chuyên gia bản ngữ chắp bút.
 
 ### NGUYÊN TẮC HIỆU ĐÍNH CỐT LÕI:
-1. **Diệt tận gốc "mùi văn dịch máy khô cứng" & lỗi dịch sát chữ (calque)**:
-   - Chủ động phát hiện và chuốt lại ngay các cấu trúc bị động dịch máy hoặc cụm từ bám chữ tiếng Anh gượng gạo:
+1. **Diệt tận gốc "mùi văn dịch máy khô cứng", lỗi dịch sát chữ (calque) & lỗi cắt cụt danh từ chỉ loại**:
+   - Chủ động phát hiện và chuốt lại ngay các cấu trúc mở đầu cộc lốc hoặc cụm từ gượng gạo trong **DRAFT**:
+     + **Sửa ngay kiểu mở đầu câu cộc lốc `"Là [vai trò], bạn..."`** (dịch sát chữ từ `"As a [role], you..."`) thành **`"Với vai trò là [vai trò], bạn..."`**, **`"Với tư cách là [vai trò], bạn..."`**, hoặc **`"Đối với các [vai trò]..."`**.
+     + **Khôi phục đầy đủ danh từ chỉ loại `"hoạt động"` trước từ `"huấn luyện"`** khi `"coaching"` là danh từ trừu tượng (`"elements of coaching"` → `"các yếu tố cốt lõi của hoạt động huấn luyện"`, `"Getting Ready for Coaching"` → `"Chuẩn bị Sẵn sàng cho Hoạt động Huấn luyện"`, KHÔNG ĐỂ `"của huấn luyện"` hay `"cho Huấn luyện"` cụt lủn).
+     + **Giữ giọng văn điềm tĩnh, chuẩn mực sư phạm**: sửa các cụm từ màu mè kiểu `"điểm tựa chính trên hành trình"` thành **`"nguồn hỗ trợ chính cho giáo viên khi họ học cách triển khai"`**; sửa động từ cộc lốc `"Phần này nêu..."` thành **`"Phần tiếp theo phác thảo..."`**.
      + Sửa cấu trúc bị động/danh từ hóa nặng nề kiểu `"được thiết kế để được sử dụng bởi..."`, `"bị/được thực hiện bởi..."`, `"Việc đạt được sự..."` thành câu chủ động mượt mà, tự nhiên.
-     + Sửa các cụm dịch thô: `"những người thực hành lớp học"` / `"người thực hành"` → `"giáo viên thực hành"`; `"các thực hành"` → `"các biện pháp thực hành"`; `"người huấn luyện"` → `"chuyên gia huấn luyện"`; `"nhìn-nghĩ-làm"` → `"Quan sát – Suy ngẫm – Hành động"`; `"quan sát tập trung"` → `"quan sát trọng tâm"`; `"buổi họp phản hồi"` → `"phản hồi - trao đổi"` / `"buổi họp tổng kết & phản hồi"`.
-     + Cắt bỏ các hư từ thừa ở đầu câu hoặc trong ô bảng hẹp như `"Việc thực hiện..."`, `"Một cách..."`, `"Sự..."`, `"Những..."` để câu văn súc tích, gãy gọn.
+     + Sửa các cụm dịch thô: `"những người thực hành lớp học"` / `"người thực hành"` → `"giáo viên thực hành tại lớp học"` / `"giáo viên thực hành"`; `"các thực hành"` → `"các biện pháp thực hành"`; `"người huấn luyện"` → `"chuyên gia huấn luyện"`; `"Ban lãnh đạo"` / `"Nhóm lãnh đạo"` → `"Đội ngũ Lãnh đạo"`; `"nhìn-nghĩ-làm"` → `"Quan sát – Suy ngẫm – Hành động"`; `"quan sát tập trung"` → `"quan sát trọng tâm"`.
 2. **Thực thi nghiêm ngặt 100% BẢNG THUẬT NGỮ BẮT BUỘC (GLOSSARY) & BOOK BRIEF**:
    - Đối chiếu từng câu giữa **SOURCE** và **DRAFT**: nếu **SOURCE** chứa thuật ngữ nằm trong **GLOSSARY** mà **DRAFT** dịch lệch hoặc bỏ sót, BẮT BUỘC sửa lại đúng 100% theo **GLOSSARY** (kể cả chữ viết tắt trong ngoặc đơn như `(PBC)`, `(TPOT)` nếu có trong GLOSSARY).
 3. **Bảo toàn tuyệt đối thẻ định dạng Inline HTML (`<b>...</b>`, `<i>...</i>`, `<sup>...</sup>`) & dữ liệu**:

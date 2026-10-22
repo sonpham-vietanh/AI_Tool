@@ -27,6 +27,8 @@ COMMON_STOPWORDS = {
     "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten",
     "His", "Her", "Hers", "Him", "She", "He", "It", "Its", "We", "Us", "Our", "You",
     "Your", "My", "Me", "Mine", "Yes", "No", "Not", "Now", "Today", "Yesterday",
+    "Edition", "Publishing", "Publisher", "Press", "University", "Journal", "Volume",
+    "Vol", "Series", "Brookes", "Baltimore", "Washington", "Department", "Office",
 }
 
 

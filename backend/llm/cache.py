@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import Dict, Optional
 
-CACHE_SCHEMA_VERSION = "v4"
+CACHE_SCHEMA_VERSION = "v5"
 
 
 class TranslationCache:
