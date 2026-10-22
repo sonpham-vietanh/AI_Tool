@@ -621,8 +621,20 @@ class TranslationLLMClient:
         sub_drafts: List[str] = []
         missing_notes: List[str] = []
 
+        enforced_glossary = [
+            g
+            for g in matched_glossary
+            if isinstance(g, dict)
+            and (
+                (g.get("src") or "").strip().lower() != (g.get("dst") or "").strip().lower()
+                or re.fullmatch(r"[A-Z0-9&\-\/\.]{2,15}s?", (g.get("src") or "").strip())
+            )
+        ]
+        if not enforced_glossary:
+            return drafts
+
         for idx, (src, dft) in enumerate(zip(sources, drafts)):
-            missing = find_missing_dst(src, dft, matched_glossary)
+            missing = find_missing_dst(src, dft, enforced_glossary)
             if missing:
                 violating_indices.append(idx)
                 sub_sources.append(src)
@@ -1935,6 +1947,11 @@ class TranslationLLMClient:
         if not candidates:
             return []
 
+        for c in candidates:
+            c["src"] = " ".join((c.get("src") or "").split()).strip()
+            c["dst"] = " ".join((c.get("dst") or "").split()).strip()
+        candidates = [c for c in candidates if c.get("src")]
+
         src_terms = [c["src"] for c in candidates]
         try:
             joined = "\n".join(src_terms)
@@ -1948,7 +1965,13 @@ class TranslationLLMClient:
         except Exception as exc:
             logger.debug("Heuristic glossary translation skipped: %s", exc)
 
-        return normalize_glossary(candidates)[:max_terms]
+        filtered_candidates = [
+            c
+            for c in candidates
+            if (c.get("src") or "").strip().lower() != (c.get("dst") or "").strip().lower()
+            or re.fullmatch(r"[A-Z0-9&\-\/\.]{2,15}s?", (c.get("src") or "").strip())
+        ]
+        return normalize_glossary(filtered_candidates)[:max_terms]
 
     async def extract_book_profile(
         self, sample_text: str, max_terms: int = 40, layout_hint: str = ""

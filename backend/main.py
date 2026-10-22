@@ -1447,9 +1447,27 @@ async def api_resume_job(job_id: str) -> Dict[str, Any]:
     _ensure_llm_configured(cfg)
     cfg.pause_for_glossary = False
     saved_glossary = list(job.get("glossary") or [])
+    untranslated_heuristic_count = sum(
+        1
+        for g in saved_glossary
+        if isinstance(g, dict)
+        and (g.get("src") or "").strip().lower() == (g.get("dst") or "").strip().lower()
+        and not re.fullmatch(r"[A-Z0-9&\-\/\.]{2,15}s?", (g.get("src") or "").strip())
+    )
+    if saved_glossary and untranslated_heuristic_count >= max(3, len(saved_glossary) // 3):
+        logger.info(
+            "Discarding polluted heuristic glossary (%d/%d untranslated entries) on resume for job %s; re-running Agent 2.",
+            untranslated_heuristic_count,
+            len(saved_glossary),
+            job_id,
+        )
+        saved_glossary = []
+        job["glossary"] = []
     if saved_glossary:
         cfg.auto_glossary = False
         cfg.custom_glossary = saved_glossary
+    else:
+        cfg.auto_glossary = True
 
     JOB_CANCEL_EVENTS[job_id] = asyncio.Event()
     JOB_GLOSSARY_EVENTS[job_id] = asyncio.Event()
