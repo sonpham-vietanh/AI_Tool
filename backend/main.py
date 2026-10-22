@@ -82,16 +82,18 @@ def _load_saved_settings() -> LLMConfig:
             return LLMConfig(**raw)
         except Exception as exc:
             logger.warning("Could not load settings.json: %s", exc)
-    model_env = (os.environ.get("BTH_MODEL") or "").strip() or "cc/claude-sonnet-5-5"
+    model_env = (os.environ.get("BTH_MODEL") or "").strip() or "cc/claude-opus-5-5"
     try:
-        concurrency_env = max(1, min(32, int(os.environ.get("BTH_CONCURRENCY", "12"))))
+        concurrency_env = max(1, min(32, int(os.environ.get("BTH_CONCURRENCY", "4"))))
     except ValueError:
-        concurrency_env = 12
+        concurrency_env = 4
     return LLMConfig(
         provider="openai",
         base_url=os.environ.get("BTH_BASE_URL", "https://api.openai.com/v1"),
         api_keys=[os.environ["BTH_API_KEY"]] if os.environ.get("BTH_API_KEY") else [],
         model=model_env,
+        agent_glossary_model=model_env,
+        agent_translator_model=model_env,
         agent_editor_model=model_env,
         concurrency=concurrency_env,
         target_lang="Tiếng Việt",
