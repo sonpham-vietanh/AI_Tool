@@ -88,21 +88,24 @@
   const TRANSLATE_MODES = {
     fast: {
       enable_editor_agent: false,
+      editor_selective: true,
       batch_chars: 8000,
       batch_items: 40,
-      hint: "Nhanh nhất: 1 lượt dịch, batch lớn, không biên tập lại.",
+      hint: "Nhanh nhất: 1 lượt dịch, batch lớn, chỉ tự sửa khi lệch từ điển.",
     },
     balanced: {
-      enable_editor_agent: false,
-      batch_chars: 5000,
-      batch_items: 24,
-      hint: "1 lượt dịch + BOOK BRIEF tự động. Cân bằng tốc độ và chất lượng.",
+      enable_editor_agent: true,
+      editor_selective: true,
+      batch_chars: 6500,
+      batch_items: 32,
+      hint: "Chuẩn 5-Agent: BOOK BRIEF + Agent 3 dịch + Agent 4 tự động chuốt văn xuôi, lời thoại & thuật ngữ.",
     },
     quality: {
       enable_editor_agent: true,
-      batch_chars: 3000,
-      batch_items: 14,
-      hint: "Thêm lượt biên tập Agent 4, batch nhỏ: văn mượt nhất nhưng chậm hơn.",
+      editor_selective: false,
+      batch_chars: 4500,
+      batch_items: 20,
+      hint: "Biên tập toàn phần: Agent 4 đọc lại và chuốt 100% mọi câu & nhãn trong sách.",
     },
   };
   const MODE_STORAGE_KEY = "bth_translate_mode";
@@ -367,6 +370,7 @@
       bilingual: bilingualMode === "bilingual",
       auto_glossary: autoGlossary,
       enable_editor_agent: enableEditor,
+      editor_selective: modeCfg.editor_selective !== false,
       batch_chars: modeCfg.batch_chars,
       batch_items: modeCfg.batch_items,
       agent_glossary_model: agentGlossaryModel,
