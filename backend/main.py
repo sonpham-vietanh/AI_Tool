@@ -65,6 +65,15 @@ def _load_saved_settings() -> LLMConfig:
             raw = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
             if raw.get("provider") == "gtx":
                 raw["provider"] = "google_free"
+            raw.setdefault("editor_selective", True)
+            if os.environ.get("BTH_DISABLE_EDITOR") != "1":
+                raw["enable_editor_agent"] = True
+                if not raw.get("agent_editor_model"):
+                    raw["agent_editor_model"] = (
+                        raw.get("model")
+                        or (os.environ.get("BTH_MODEL") or "").strip()
+                        or "cc/claude-sonnet-5-5"
+                    )
             return LLMConfig(**raw)
         except Exception as exc:
             logger.warning("Could not load settings.json: %s", exc)
@@ -82,7 +91,9 @@ def _load_saved_settings() -> LLMConfig:
         concurrency=concurrency_env,
         target_lang="Tiếng Việt",
         target_lang_code="vi",
-        auto_glossary=True, enable_editor_agent=True, editor_selective=True,
+        auto_glossary=True,
+        enable_editor_agent=(os.environ.get("BTH_DISABLE_EDITOR") != "1"),
+        editor_selective=True,
     )
 
 

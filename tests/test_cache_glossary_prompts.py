@@ -229,3 +229,31 @@ def test_extract_book_spread_sample_prioritizes_key_terms_and_glossary(tmp_path)
     assert "Practice-Based Coaching (PBC)" in sample
     assert "GLOSSARY" in sample
     assert "Teaching Pyramid Observation Tool (TPOT)" in sample
+
+
+def test_prompts_contain_contrastive_few_shot_exemplars_and_micro_detail_rules():
+    sys_p = build_system_prompt(target_lang="Tiếng Việt", is_batch=True)
+    ed_p = build_editor_system_prompt(target_lang="Tiếng Việt", is_batch=True)
+
+    for prompt in (sys_p, ed_p):
+        # Contrastive few-shot exemplars section
+        assert "FEW-SHOT EXEMPLARS" in prompt
+        assert "guide on the side" in prompt
+        assert "sage on the stage" in prompt
+        assert "Bạn Kevin đã chia sẻ ô tô đồ chơi với con và điều đó làm con rất vui ạ." in prompt
+        assert "Tất cả các con hãy nhìn vào thời khóa biểu bằng hình ảnh mới và xem hôm nay chúng mình sẽ làm gì nhé." in prompt
+        assert "Tỷ lệ giáo viên / chuyên gia" in prompt
+        assert "Xuất bản: 28/04/2021" in prompt
+        assert "Xuất bản: 19/04/21" in prompt
+
+        # Micro-detail and classroom / pedagogical rules
+        assert "MICRO-DETAILS & SEMANTIC NUANCE" in prompt
+        assert "Thầy Roberts" in prompt and "Cô Delfino" in prompt
+        assert "Ông Roberts" in prompt and "Bà Delfino" in prompt
+        assert "Chúng mình an toàn" in prompt and "Chúng mình thân thiện" in prompt
+        assert "giờ trò chuyện sáng" in prompt
+        assert "đứng lớp thay" in prompt
+        assert "Chúc mừng thành công (trong quá trình huấn luyện)" in prompt
+        assert "Bản sửa đổi: 02-2021" in prompt
+        assert "Văn phòng Chương trình Giáo dục Đặc biệt thuộc Bộ Giáo dục Hoa Kỳ" in prompt
+

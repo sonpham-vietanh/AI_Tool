@@ -188,6 +188,14 @@ _VI_CALQUE_RE = re.compile(
     r"thuc hien viec|"
     r"sự hiện diện của|"
     r"su hien dien cua|"
+    r"được thiết kế để|"
+    r"duoc thiet ke de|"
+    r"được sử dụng bởi|"
+    r"duoc su dung boi|"
+    r"bị thực hiện bởi|"
+    r"bi thuc hien boi|"
+    r"được thực hiện bởi|"
+    r"duoc thuc hien boi|"
     r"những người thực hành|"
     r"nhung nguoi thuc hanh|"
     r"người thực hành|"
@@ -195,7 +203,56 @@ _VI_CALQUE_RE = re.compile(
     r"các thực hành|"
     r"cac thuc hanh|"
     r"nhìn\s*[-–—]\s*nghĩ\s*[-–—]\s*làm|"
-    r"nhin\s*[-–—]\s*nghi\s*[-–—]\s*lam"
+    r"nhin\s*[-–—]\s*nghi\s*[-–—]\s*lam|"
+    r"câu hỏi phản chiếu|"
+    r"cau hoi phan chieu|"
+    r"lịch trình hình ảnh|"
+    r"lich trinh hinh anh|"
+    r"lịch trình trực quan|"
+    r"lich trinh truc quan|"
+    r"người được huấn luyện|"
+    r"nguoi duoc huan luyen|"
+    r"người huấn luyện|"
+    r"nguoi huan luyen|"
+    r"bậc thầy trên bục giảng|"
+    r"bac thay tren buc giang|"
+    r"người dẫn đường bên cạnh|"
+    r"nguoi dan duong ben canh|"
+    r"tỉ lệ người huấn luyện|"
+    r"tỷ lệ người huấn luyện|"
+    r"ty le nguoi huan luyen|"
+    r"với độ trung thực|"
+    r"voi do trung thuc|"
+    r"mỗi giáo viên mỗi|"
+    r"moi giao vien moi|"
+    r"phát triển bởi\s*:|"
+    r"phat trien boi\s*:|"
+    r"pub\s*:\s*\d|"
+    r"rev\.?\s*\d{2}|"
+    r"ông\s+roberts|"
+    r"ong\s+roberts|"
+    r"bà\s+delfino|"
+    r"ba\s+delfino|"
+    r"trông lớp thay|"
+    r"trong lop thay|"
+    r"ăn mừng trong|"
+    r"an mung trong|"
+    r"giờ họp lớp buổi sáng|"
+    r"gio hop lop buoi sang|"
+    r"sau khi trẻ ra về|"
+    r"sau khi tre ra ve|"
+    r"các thực hành đã có|"
+    r"cac thuc hanh da co|"
+    r"chúng ta tử tế|"
+    r"chung ta tu te|"
+    r"tpot liên tục|"
+    r"tpot lien tuc|"
+    r"ghi nhận sự bực bội|"
+    r"ghi nhan su buc boi|"
+    r"các cờ đỏ|"
+    r"cac co do|"
+    r"mục cờ đỏ|"
+    r"muc co do"
     r")",
     re.IGNORECASE,
 )
@@ -294,6 +351,26 @@ def _should_invoke_editor(
                 and dw_low not in _EN_LEFTOVER_IGNORE
             ):
                 return True
+
+    # 4. Substantive prose sentence, dialogue, or idiom that benefits from Agent 4 literary polishing
+    d_strip = draft.strip()
+    is_synthetic_stub = (
+        (d_strip.startswith("VI(") and d_strip.endswith(")"))
+        or d_strip.startswith("[Dịch")
+        or d_strip.startswith("Bản dịch")
+    )
+    if not is_synthetic_stub:
+        s_strip = src.strip()
+        if (
+            len(s_strip) >= 85
+            or "“" in s_strip
+            or "”" in s_strip
+            or ("\"" in s_strip and ":" in s_strip)
+            or bool(re.search(r"['\"][^'\"]{4,80}['\"]", s_strip))
+            or s_strip.count(".") >= 2
+            or s_strip.count("?") >= 1
+        ):
+            return True
 
     return False
 

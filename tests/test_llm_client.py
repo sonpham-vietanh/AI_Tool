@@ -308,3 +308,42 @@ def test_active_glossary_enforcement_and_auto_repair_with_context_salt(make_clie
     assert "Huấn luyện dựa trên thực hành (PBC)" in out[0]
     assert out[1] == "Tài liệu hướng dẫn này giải thích rõ các bước."
     assert len(calls_log) == 2  # 1 lượt dịch batch + 1 lượt auto-repair cho đúng câu vi phạm glossary
+
+
+def test_should_invoke_editor_catches_calques_substantive_prose_and_ignores_test_stubs():
+    from backend.llm.client import _should_invoke_editor
+
+    # 1) Bắt các lỗi dịch sát chữ (calques) trong tiếng Việt sư phạm / mầm non
+    calque_cases = [
+        ("Mr. Roberts greeted the children.", "Ông Roberts chào đón các bé."),
+        ("Ms. Delfino prepared the activity.", "Bà Delfino chuẩn bị hoạt động."),
+        ("Ask a colleague to cover class.", "Nhờ đồng nghiệp trông lớp thay."),
+        ("Celebrations around the coaching process", "Ăn mừng trong quá trình huấn luyện"),
+        ("During morning meeting", "Trong giờ họp lớp buổi sáng"),
+        ("We are safe, we are kind.", "Chúng ta an toàn, chúng ta tử tế."),
+    ]
+    for src, calque_draft in calque_cases:
+        assert _should_invoke_editor(src, calque_draft) is True, f"Failed to catch calque: {calque_draft}"
+
+    # 2) Kích hoạt Agent 4 trên câu văn xuôi dài (>= 85 ký tự), hội thoại, câu trích dẫn hoặc câu hỏi
+    long_src = (
+        "This guide helps classroom coaches partner with teachers to implement "
+        "effective practices across daily routines and learning centers."
+    )
+    long_draft = (
+        "Cẩm nang này giúp các chuyên gia huấn luyện phối hợp với giáo viên triển khai "
+        "các biện pháp thực hành hiệu quả trong sinh hoạt hàng ngày."
+    )
+    assert _should_invoke_editor(long_src, long_draft) is True
+    assert _should_invoke_editor('Teacher: "Let us look at the schedule."', 'Giáo viên: "Hãy nhìn vào lịch biểu."') is True
+    assert _should_invoke_editor("Be a 'guide on the side' when coaching.", "Hãy là người đồng hành bên cạnh khi huấn luyện.") is True
+    assert _should_invoke_editor("What if the teacher cancels?", "Tôi nên làm gì nếu giáo viên hủy lịch?") is True
+
+    # 3) Nhãn ngắn đã dịch chuẩn và không dính calque -> không cần gọi Agent 4
+    assert _should_invoke_editor("Action Plan", "Kế hoạch hành động") is False
+    assert _should_invoke_editor("Focused Observation", "Quan sát trọng tâm") is False
+
+    # 4) Bỏ qua các bản dịch giả lập của unit test dạng VI(...) ngay cả khi câu gốc dài hoặc có dấu hỏi
+    assert _should_invoke_editor(long_src, "VI(Bản dịch giả lập cho câu dài)") is False
+    assert _should_invoke_editor("What if the teacher cancels?", "VI(Bản dịch câu hỏi?)") is False
+

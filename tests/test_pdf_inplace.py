@@ -405,3 +405,117 @@ def test_per_member_url_restoration_with_same_prefix_different_urls(tmp_path, ma
     assert "https://b.org/2.pdf" in txt
 
 
+def test_polish_micro_details_dates_revisions_form_fields_and_tag_balancing():
+    from backend.translators.pdf_translator import _polish_micro_details
+
+    # 1) US date conversions (Published: MM/DD/YYYY and Pub: MM/DD/YY)
+    assert (
+        _polish_micro_details("Published: 04/28/2021", "Published: 04/28/2021")
+        == "Xuất bản: 28/04/2021"
+    )
+    assert (
+        _polish_micro_details("Pub: 04/19/21", "Pub: 04/19/21")
+        == "Xuất bản: 19/04/21"
+    )
+    # 2) Revision footer tag
+    assert (
+        _polish_micro_details("Rev. 02-2021", "Rev. 02-2021")
+        == "Bản sửa đổi: 02-2021"
+    )
+    # 3) Form field underscore labels
+    assert (
+        _polish_micro_details("Teacher: _____", "Teacher: _____")
+        == "Giáo viên: _____"
+    )
+    assert (
+        _polish_micro_details("Coach: _____", "Coach: _____")
+        == "Chuyên gia huấn luyện: _____"
+    )
+    assert (
+        _polish_micro_details("Date: _____", "Date: _____")
+        == "Ngày: _____"
+    )
+    assert (
+        _polish_micro_details("<b>Teacher:</b> _____", "<b>Teacher:</b> _____")
+        == "<b>Giáo viên:</b> _____"
+    )
+    # 4) Inline HTML tag balancing (LIFO closing & empty tag cleanup)
+    assert (
+        _polish_micro_details("<b><i>Example 1:</i></b>", "<b><i>Ví dụ 1:</b></i> nội dung")
+        == "<b><i>Ví dụ 1:</i></b> nội dung"
+    )
+    assert (
+        _polish_micro_details("<b>Heading</b>", "<b>Tiêu đề in đậm")
+        == "<b>Tiêu đề in đậm</b>"
+    )
+    # 5) Synthetic test stubs VI(...) remain untouched
+    assert _polish_micro_details("Published: 04/28/2021", "VI(Published: 04/28/2021)") == "VI(Published: 04/28/2021)"
+
+
+def test_build_page_context_map_and_role_hint_with_headings_and_table_captions():
+    from backend.translators.pdf_translator import _build_page_context_map, _role_hint
+
+    u_heading = pi.Unit(
+        page=0,
+        rect=fitz.Rect(40, 50, 320, 75),
+        line_rects=[fitz.Rect(40, 50, 320, 75)],
+        text="Focused Observation",
+        size=18.0,
+        bold=True,
+        italic=False,
+        serif=False,
+        color=(0, 0, 0),
+    )
+    u_caption = pi.Unit(
+        page=0,
+        rect=fitz.Rect(40, 110, 340, 128),
+        line_rects=[fitz.Rect(40, 110, 340, 128)],
+        text="Table 1. Coaching Schedule and Caseload",
+        size=11.0,
+        bold=True,
+        italic=False,
+        serif=False,
+        color=(0, 0, 0),
+    )
+    u_body = pi.Unit(
+        page=0,
+        rect=fitz.Rect(40, 160, 360, 210),
+        line_rects=[fitz.Rect(40, 160, 360, 210)],
+        text="The coach observes the classroom practitioner during morning meeting.",
+        size=11.0,
+        bold=False,
+        italic=False,
+        serif=False,
+        color=(0, 0, 0),
+    )
+    # Trang 2 không có tiêu đề mới -> kế thừa active_section từ trang 1
+    u_page2_body = pi.Unit(
+        page=1,
+        rect=fitz.Rect(40, 90, 360, 130),
+        line_rects=[fitz.Rect(40, 90, 360, 130)],
+        text="Follow-up debriefing notes are recorded on the form.",
+        size=11.0,
+        bold=False,
+        italic=False,
+        serif=False,
+        color=(0, 0, 0),
+    )
+
+    ctx_map = _build_page_context_map(
+        [u_heading, u_caption, u_body, u_page2_body],
+        page_h=792.0,
+        body_size=11.0,
+        repeat_counts={},
+    )
+    assert 0 in ctx_map and 1 in ctx_map
+    assert "Focused Observation" in ctx_map[0]
+    assert "Table 1. Coaching Schedule and Caseload" in ctx_map[0]
+    assert "Focused Observation" in ctx_map[1]
+
+    hint_body = _role_hint(u_body, page_h=792.0, body_size=11.0, repeats=1, page_topic=ctx_map[0])
+    assert "Chủ đề trang:" in hint_body
+    assert "Focused Observation" in hint_body
+    assert "Table 1. Coaching Schedule and Caseload" in hint_body
+
+
+
