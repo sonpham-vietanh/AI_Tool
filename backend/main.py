@@ -31,7 +31,7 @@ from .search import (
 from .translators import (
     convert_to_docx,
     describe_book_layout,
-    extract_book_spread_sample,
+    # extract_book_spread_sample imported from .translators.glossary_extractor below
     translate_docx_file,
     translate_epub_file,
     translate_pdf_file,
@@ -42,6 +42,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
+from .translators.glossary_extractor import extract_book_spread_sample
 logger = logging.getLogger("BookTranslatorHub")
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -81,7 +82,7 @@ def _load_saved_settings() -> LLMConfig:
         concurrency=concurrency_env,
         target_lang="Tiếng Việt",
         target_lang_code="vi",
-        auto_glossary=True,
+        auto_glossary=True, enable_editor_agent=True, editor_selective=True,
     )
 
 
@@ -604,12 +605,12 @@ async def _execute_translation_pipeline(
             job["message"] = "[Agent 2 · Terminologist] Đang đọc mẫu sách & lập Bảng từ điển thuật ngữ chuẩn hóa..."
             try:
                 sample_text = await asyncio.to_thread(
-                    extract_book_spread_sample, str(input_path_obj), 15000
+                    extract_book_spread_sample, str(input_path_obj), 25000
                 )
                 if sample_text and len(sample_text.strip()) > 80:
                     layout_hint = await asyncio.to_thread(describe_book_layout, str(input_path_obj))
                     profile = await llm_client.extract_book_profile(
-                        sample_text, max_terms=40, layout_hint=layout_hint
+                        sample_text, max_terms=55, layout_hint=layout_hint
                     )
                     extracted_terms = profile["glossary"]
                     if profile["brief"]:

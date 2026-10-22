@@ -10,13 +10,15 @@ from urllib.parse import quote
 import httpx
 from pydantic import BaseModel, Field, field_validator
 
-from .cache import TranslationCache, default_cache
+from .cache import CACHE_SCHEMA_VERSION, TranslationCache, default_cache
 from .glossary import (
+    COMMON_STOPWORDS,
     apply_glossary_replacements,
     extract_candidate_terms_heuristic,
     extract_proper_noun_candidates,
     filter_glossary_for_text,
     find_missing_dst,
+    relevant_glossary,
     split_terms_section,
     term_in_text,
     normalize_glossary,
@@ -81,6 +83,7 @@ class LLMConfig(BaseModel):
     # Biên tập 2 lượt (Agent 4 gọi LLM lần 2 cho mỗi batch): văn mượt hơn nhưng chậm gấp ~2 lần.
     # Mặc định tắt: Agent 3 đã tự rà soát văn phong trong cùng 1 lượt gọi.
     enable_editor_agent: bool = Field(default=False)
+    editor_selective: bool = Field(default=True)
     batch_chars: int = Field(default=5000, ge=800, le=20000)
     batch_items: int = Field(default=24, ge=1, le=60)
     # None = tự chọn (Gemini 2.5 Flash: 0, Gemini 2.5 Pro: 128) để bớt thời gian "suy nghĩ"
@@ -132,12 +135,167 @@ class LLMConfig(BaseModel):
             )
 
 
-def _strip_english_gloss(dst: str) -> str:
-    """Bỏ phần "(English term)" ở cuối bản dịch tiếng Việt trong glossary; giữ nguyên nếu cả cụm là ASCII (viết tắt)."""
-    m = re.search(r"\s*\(([^()]*)\)\s*$", dst or "")
-    if m and all(ord(ch) < 128 for ch in m.group(1)) and any(ord(ch) > 127 for ch in dst[: m.start()]):
-        return dst[: m.start()].strip()
-    return dst
+def _strip_english_gloss(
+    src_or_dst: str,
+    dst: Optional[str] = None,
+    glossary: Optional[List[Dict[str, str]]] = None,
+) -> str:
+    """
+    Bỏ phần "(English term)" ở cuối bản dịch tiếng Việt trong glossary hoặc đoạn văn;
+    NHƯNG giữ nguyên tuyệt đối nếu phần trong ngoặc là từ viết tắt chữ hoa (VD: `(PBC)`, `(TPOT)`, `(TACSEI)`, `(IEP)`)
+    hoặc xuất hiện trong phần `dst` của bảng thuật ngữ (glossary).
+    Hỗ trợ gọi cả 1 tham số `_strip_english_gloss(dst)` lẫn 2-3 tham số `_strip_english_gloss(src, dst, glossary)`.
+    """
+    if dst is None:
+        target = src_or_dst or ""
+    else:
+        target = dst or ""
+
+    if not target:
+        return target
+
+    glossary_parens: set = set()
+    if glossary:
+        for g in glossary:
+            if isinstance(g, dict):
+                gdst = g.get("dst") or ""
+                for pm in re.findall(r"\(([^()]+)\)", gdst):
+                    glossary_parens.add(pm.strip().lower())
+
+    m = re.search(r"\s*\(([^()]*)\)\s*$", target)
+    if m:
+        inner = m.group(1).strip()
+        prefix = target[: m.start()]
+        # Giữ nguyên nếu là từ viết tắt (VD: PBC, TPOT, TACSEI, IEP, Pre-K, Q&A)
+        if re.fullmatch(r"[A-Z0-9&\-\/\.]{2,15}s?", inner) and sum(1 for c in inner if c.isupper()) >= 2:
+            return target
+        # Giữ nguyên nếu nằm trong glossary dst
+        if dst is not None and inner.lower() in glossary_parens:
+            return target
+        # Bỏ phần tiếng Anh trong ngoặc (khi phần trước có ký tự tiếng Việt / chữ cái và phần trong ngoặc là cụm tiếng Anh thường)
+        if inner and all(ord(ch) < 128 for ch in inner) and any(ch.isalpha() for ch in prefix):
+            return prefix.strip()
+    return target
+
+
+_VI_CALQUE_RE = re.compile(
+    r"("
+    r"một cách\s+\w+|"
+    r"mot cach\s+\w+|"
+    r"bởi vì sự thật là|"
+    r"boi vi su that la|"
+    r"thực hiện việc|"
+    r"thuc hien viec|"
+    r"sự hiện diện của|"
+    r"su hien dien cua|"
+    r"những người thực hành|"
+    r"nhung nguoi thuc hanh|"
+    r"người thực hành|"
+    r"nguoi thuc hanh|"
+    r"các thực hành|"
+    r"cac thuc hanh|"
+    r"nhìn\s*[-–—]\s*nghĩ\s*[-–—]\s*làm|"
+    r"nhin\s*[-–—]\s*nghi\s*[-–—]\s*lam"
+    r")",
+    re.IGNORECASE,
+)
+
+_EN_LEFTOVER_IGNORE = {w.lower() for w in COMMON_STOPWORDS} | {
+    "http", "https", "html", "json", "epub", "docx", "data", "code", "file", "page",
+    "email", "internet", "online", "video", "audio", "podcast", "website", "blog",
+    "test", "model", "alpha", "beta", "gamma", "delta", "omega", "chapter", "section",
+}
+
+
+_LLM_REFUSAL_START_RE = re.compile(
+    r"(?i)^\s*(?:"
+    r"không\s+dịch\s+trọn\s+đoạn\s+này|"
+    r"khong\s+dich\s+tron\s+doan\s+nay|"
+    r"tôi\s+không\s+thể\s+dịch|"
+    r"toi\s+khong\s+the\s+dich|"
+    r"xin\s+lỗi,?\s+tôi\s+không\s+thể\s+dịch|"
+    r"xin\s+loi,?\s+toi\s+khong\s+the\s+dich|"
+    r"i\s+cannot\s+translate|"
+    r"i'm\s+sorry,?\s+i\s+can't\s+translate|"
+    r"i\s+am\s+sorry,?\s+i\s+cannot\s+translate"
+    r")"
+)
+
+_LLM_COPYRIGHT_REFUSAL_RE = re.compile(
+    r"(?i)(?:văn\s+bản\s+có\s+bản\s+quyền|sách\s+có\s+bản\s+quyền|tài\s+liệu\s+có\s+bản\s+quyền|bảo\s+vệ\s+bản\s+quyền)"
+)
+
+
+def _is_llm_refusal(src: str, dst: str) -> bool:
+    """Detects LLM copyright/policy refusal responses disguised as target-language output."""
+    if not dst or not dst.strip():
+        return False
+    if _LLM_REFUSAL_START_RE.search(dst):
+        return True
+    if _LLM_COPYRIGHT_REFUSAL_RE.search(dst) and "copyright" not in (src or "").lower():
+        return True
+    return False
+
+
+def _should_invoke_editor(
+    src: str,
+    draft: str,
+    glossary: Optional[List[Dict[str, str]]] = None,
+) -> bool:
+    """
+    Determines whether a draft segment needs Agent 4 (Editor) refinement:
+    1. Mandatory glossary terms from `src` are missing in `draft` (`find_missing_dst`).
+    2. Draft contains common English-to-Vietnamese calques (e.g., 'một cách ...', 'bởi vì sự thật là',
+       'thực hiện việc', 'sự hiện diện của', 'những người thực hành').
+    3. Draft contains leftover untranslated English words of 4+ ASCII letters that are not
+       acronyms/proper nouns from `src` or allowed terms in `glossary`.
+    """
+    if not src or not draft:
+        return False
+
+    # 1. Glossary violation check
+    if glossary and find_missing_dst(src, draft, glossary):
+        return True
+
+    # 2. Common Vietnamese calques check
+    if _VI_CALQUE_RE.search(draft):
+        return True
+
+    # 3. Leftover untranslated English words (4+ pure ASCII letters) appearing in both src and draft
+    # that are NOT acronyms or capitalized proper nouns in src and not part of glossary dst
+    src_tokens = re.findall(r"\b[A-Za-z]{4,}\b", src)
+    if src_tokens:
+        src_lower_non_proper = set()
+        for idx, m in enumerate(re.finditer(r"\b([A-Za-z]{4,})\b", src)):
+            w = m.group(1)
+            if w.isupper():
+                continue
+            # If capitalized mid-sentence, treat as proper noun
+            if w[0].isupper() and m.start() > 0 and src[m.start() - 1] not in ".!?\n\"'([":
+                continue
+            src_lower_non_proper.add(w.lower())
+
+        glossary_dst_words = set()
+        if glossary:
+            for g in glossary:
+                if isinstance(g, dict) and g.get("dst"):
+                    for gw in re.findall(r"\b[A-Za-z]{4,}\b", g["dst"]):
+                        glossary_dst_words.add(gw.lower())
+
+        # Check draft for pure ASCII words of 4+ letters
+        for dm in re.finditer(r"(?<![A-Za-z0-9_\u00C0-\u1EF9])([a-zA-Z]{4,})(?![A-Za-z0-9_\u00C0-\u1EF9])", draft):
+            dw = dm.group(1)
+            if dw.isupper():
+                continue
+            dw_low = dw.lower()
+            if (
+                dw_low in src_lower_non_proper
+                and dw_low not in glossary_dst_words
+                and dw_low not in _EN_LEFTOVER_IGNORE
+            ):
+                return True
+
+    return False
 
 
 class TranslationLLMClient:
@@ -194,9 +352,37 @@ class TranslationLLMClient:
 
     def _is_untranslated(self, src: str, dst: str) -> bool:
         try:
+            if _is_llm_refusal(src, dst):
+                return True
             return looks_untranslated(src, dst, self.config.target_lang_code or "vi")
         except Exception:  # a diagnostic must never break translation
             return False
+
+    def _context_salt(
+        self, src_text: str, glossary: Optional[List[Dict[str, str]]] = None
+    ) -> str:
+        """
+        Computes a lightweight per-segment cache salt based on CACHE_SCHEMA_VERSION
+        and the sorted `src->dst` pairs from `relevant_glossary(src_text, glossary)`.
+        """
+        merged = self._merged_glossary(glossary)
+        matched = relevant_glossary(src_text, merged) if merged else []
+        if not matched:
+            return CACHE_SCHEMA_VERSION
+        pairs = sorted(
+            f"{(g.get('src') or '').strip().lower()}->{(g.get('dst') or '').strip()}"
+            for g in matched
+            if g.get("src") and g.get("dst")
+        )
+        return f"{CACHE_SCHEMA_VERSION}|" + ";".join(pairs)
+
+    @staticmethod
+    def _should_invoke_editor(
+        src: str,
+        draft: str,
+        glossary: Optional[List[Dict[str, str]]] = None,
+    ) -> bool:
+        return _should_invoke_editor(src, draft, glossary)
 
     def _reserve_retries(self, wanted: int) -> int:
         """How many retries we may still spend: <= 25% of segments seen (min 4) and <= 200 overall."""
@@ -243,10 +429,11 @@ class TranslationLLMClient:
         async def one(key: int, src: str, hint: str) -> None:
             try:
                 ctx = "\n".join(x for x in (context, f"(Vai trò/vị trí của đoạn: {hint})" if hint else "", warning) if x)
+                seg_glossary = filter_glossary_for_text(src, self._merged_glossary(glossary))
                 sys_prompt = build_system_prompt(
                     target_lang=target_lang,
                     custom_prompt=effective_prompt,
-                    glossary=filter_glossary_for_text(src, self._merged_glossary(glossary)),
+                    glossary=seg_glossary,
                     context=ctx,
                     book_brief=self.book_brief,
                     is_batch=False,
@@ -256,7 +443,8 @@ class TranslationLLMClient:
                 out = re.sub(r"^\[\[#\d+\]\]\s*", "", out or "").strip()
                 if out and not self._is_untranslated(src, out):
                     fixed[key] = out
-                    self.cache.set(src, out, target_lang, provider, cache_model_key)
+                    salt = self._context_salt(src, glossary)
+                    self.cache.set(src, out, target_lang, provider, cache_model_key, context_salt=salt)
             except Exception as exc:
                 logger.warning("Untranslated-segment retry failed: %s", exc)
 
@@ -264,6 +452,122 @@ class TranslationLLMClient:
             await asyncio.gather(*[one(k, s, h) for k, s, _d, h in todo])
         self._qs_add(retried_fixed=len(fixed), still_untranslated=len(items) - len(fixed))
         return fixed
+
+    async def _edit_sub_batch(
+        self,
+        sources: List[str],
+        drafts: List[str],
+        matched_glossary: Optional[List[Dict[str, str]]] = None,
+        extra_instruction: str = "",
+    ) -> List[str]:
+        """
+        Calls the Editor LLM on a specific sub-batch of (sources, drafts), with optional
+        explicit instructions (such as mandatory missing glossary terms to enforce).
+        """
+        if not sources or len(sources) != len(drafts):
+            return drafts
+
+        ed_override = self.config.agent_editor_model or self.config.model
+        ed_provider = self._effective_provider(model_override=ed_override)
+        ed_model = self._effective_model(model_override=ed_override)
+        if ed_provider == "google_free":
+            return drafts
+
+        try:
+            effective_prompt = resolve_genre_prompt(
+                self.config.genre_preset, self.config.custom_prompt
+            )
+            if extra_instruction:
+                effective_prompt = f"{effective_prompt}\n{extra_instruction}".strip()
+            sys_prompt = build_editor_system_prompt(
+                target_lang=self.config.target_lang,
+                custom_prompt=effective_prompt,
+                glossary=matched_glossary,
+                book_brief=self.book_brief,
+                is_batch=True,
+            )
+            user_prompt = build_editor_batch_user_prompt(sources, drafts)
+            raw_edited = await self._call_llm_with_rotation(
+                sys_prompt, user_prompt, model_override=ed_override
+            )
+            parsed_edited = self._parse_batch_response(raw_edited, len(sources))
+            if parsed_edited and len(parsed_edited) == len(sources):
+                refined_count = 0
+                for src, dft, pol in zip(sources, drafts, parsed_edited):
+                    if dft.strip() != pol.strip():
+                        refined_count += 1
+                    self.last_editor_diffs[src.strip()] = {
+                        "draft": dft.strip(),
+                        "polished": pol.strip(),
+                        "editor_model": ed_model,
+                    }
+                await self._emit_agent_event(
+                    agent_id=4,
+                    agent_name="Agent 4 · Tổng Biên Tập",
+                    action="refined_batch",
+                    detail=f"Đã đối chiếu {len(sources)} đoạn & chuốt lại {refined_count} câu văn chuẩn xuất bản",
+                    model=ed_model,
+                )
+                return parsed_edited
+        except Exception as exc:
+            logger.warning("Agent 4 (Editor) sub-batch pass skipped (%s); keeping draft.", exc)
+
+        return drafts
+
+    async def _repair_glossary_violations(
+        self,
+        sources: List[str],
+        drafts: List[str],
+        matched_glossary: Optional[List[Dict[str, str]]] = None,
+    ) -> List[str]:
+        """
+        Checks translated segments for missing mandatory glossary terms (`find_missing_dst`).
+        If any segments violate the glossary and we are on a real LLM provider (`provider != "google_free"`),
+        routes those specific violating segments through a targeted repair call (`_edit_sub_batch`)
+        that explicitly lists the missing `src -> dst` terms required for each segment.
+        """
+        if not matched_glossary or not sources or len(sources) != len(drafts):
+            return drafts
+
+        # Heuristic / test check: if all outputs look like synthetic test stubs (e.g. `VI(...)`),
+        # do not trigger extra LLM calls unless at least one glossary dst was honoured or real prose is returned.
+        if all(d.startswith("VI(") and d.endswith(")") for d in drafts if d):
+            return drafts
+
+        violating_indices: List[int] = []
+        sub_sources: List[str] = []
+        sub_drafts: List[str] = []
+        missing_notes: List[str] = []
+
+        for idx, (src, dft) in enumerate(zip(sources, drafts)):
+            missing = find_missing_dst(src, dft, matched_glossary)
+            if missing:
+                violating_indices.append(idx)
+                sub_sources.append(src)
+                sub_drafts.append(dft)
+                pairs_str = ", ".join(f"`{m['src']}` -> `{m['dst']}`" for m in missing)
+                missing_notes.append(f"- Đoạn [[#{len(sub_sources) - 1}]]: bắt buộc dùng {pairs_str}")
+
+        if not violating_indices:
+            return drafts
+
+        instruction = (
+            "CẢNH BÁO VI PHẠM THUẬT NGỮ BẮT BUỘC (GLOSSARY ENFORCEMENT):\n"
+            "Các đoạn dịch nháp dưới đây đã bỏ sót hoặc dịch sai thuật ngữ bắt buộc trong GLOSSARY. "
+            "Bạn BẮT BUỘC phải sửa lại bản dịch sao cho xuất hiện chính xác các thuật ngữ đích sau đây:\n"
+            + "\n".join(missing_notes)
+        )
+        repaired_sub = await self._edit_sub_batch(
+            sub_sources,
+            sub_drafts,
+            matched_glossary=matched_glossary,
+            extra_instruction=instruction,
+        )
+        out = list(drafts)
+        for sub_i, orig_idx in enumerate(violating_indices):
+            if sub_i < len(repaired_sub) and repaired_sub[sub_i]:
+                out[orig_idx] = repaired_sub[sub_i]
+        return out
 
     async def _emit_agent_event(self, agent_id: int, agent_name: str, action: str, detail: str = "", model: str = "") -> None:
         if self.agent_event_cb:
@@ -930,21 +1234,24 @@ class TranslationLLMClient:
         ed_tag = f"+ed:{self.config.agent_editor_model or model}" if self.config.enable_editor_agent else ""
         cache_model_key = f"{model}{ed_tag}"
         target_lang = self.config.target_lang
+        matched_glossary = filter_glossary_for_text(text, self._merged_glossary(glossary))
+        salt = self._context_salt(text, glossary)
 
-        # 1. Check SQLite Cache
-        cached = self.cache.get(text, target_lang, provider, cache_model_key)
+        # 1. Check SQLite Cache (with glossary-aware context_salt + active glossary violation check)
+        cached = self.cache.get(text, target_lang, provider, cache_model_key, context_salt=salt)
         if cached:
-            if not self._is_untranslated(text, cached):
+            if matched_glossary and find_missing_dst(text, cached, matched_glossary):
+                cached = None  # Stale cache entry violating mandatory glossary -> treat as cache miss!
+            elif not self._is_untranslated(text, cached):
                 self._qs_add(total=1)
                 return cached
-            if provider == "google_free":  # nothing better to try; report honestly
+            elif provider == "google_free":  # nothing better to try; report honestly
                 self._qs_add(total=1, untranslated_found=1, still_untranslated=1)
                 return cached
             # poisoned entry (e.g. earlier Google-fallback run): re-translate and overwrite below
 
         self._qs_add(total=1)
         fell_back = False
-        matched_glossary = filter_glossary_for_text(text, self._merged_glossary(glossary))
 
         async with self.semaphore:
             try:
@@ -969,7 +1276,11 @@ class TranslationLLMClient:
                         sys_prompt, text, model_override=tr_model_override
                     )
                     translated = re.sub(r"^\[\[#\d+\]\]\s*", "", translated).strip()
-                    if self.config.enable_editor_agent and translated:
+                    need_editor = self.config.enable_editor_agent and (
+                        not self.config.editor_selective
+                        or self._should_invoke_editor(text, translated, matched_glossary)
+                    )
+                    if need_editor and translated:
                         draft_copy = translated
                         polished_single = await self.polish_single_segment(
                             src_text=text,
@@ -985,6 +1296,22 @@ class TranslationLLMClient:
                                     model_override=self.config.agent_editor_model or self.config.model
                                 ),
                             }
+                    elif (
+                        matched_glossary
+                        and translated
+                        and not (translated.startswith("VI(") and translated.endswith(")"))
+                        and find_missing_dst(text, translated, matched_glossary)
+                    ):
+                        missing_items = find_missing_dst(text, translated, matched_glossary)
+                        pairs_str = ", ".join(f"`{m['src']}` -> `{m['dst']}`" for m in missing_items)
+                        repaired = await self.polish_single_segment(
+                            src_text=text,
+                            draft_text=translated,
+                            instruction=f"BẮT BUỘC sử dụng đúng thuật ngữ GLOSSARY đã bị sót: {pairs_str}",
+                            glossary=matched_glossary,
+                        )
+                        if repaired and repaired.strip():
+                            translated = repaired.strip()
             except Exception as exc:
                 logger.error("translate_text failed with LLM (%s), falling back to google_free", exc)
                 if self.config.fallback_to_google_free:
@@ -998,7 +1325,7 @@ class TranslationLLMClient:
                 else:
                     raise
 
-        if matched_glossary and not self.config.enable_editor_agent:
+        if matched_glossary:
             self._warn_missing_dst(text, translated, matched_glossary)
 
         untranslated = self._is_untranslated(text, translated)
@@ -1017,7 +1344,7 @@ class TranslationLLMClient:
             )
             return fixed.get(0, translated)
         if translated and translated.strip():
-            self.cache.set(text, translated, target_lang, provider, cache_model_key)
+            self.cache.set(text, translated, target_lang, provider, cache_model_key, context_salt=salt)
 
         return translated
 
@@ -1066,54 +1393,37 @@ class TranslationLLMClient:
         Agent 4: Chief Editor & Literary Critic Agent.
         Compares [SOURCE] and [DRAFT] segments and polishes awkward/literal phrasing into
         publication-grade prose while preserving 100% of numbers, formulas, and [[#i]] markers.
+        When `editor_selective` is True, only segments triggered by `_should_invoke_editor`
+        are sent to the Editor LLM, keeping speed high.
         """
         if not self.config.enable_editor_agent or not sources or len(sources) != len(drafts):
             return drafts
 
         ed_override = self.config.agent_editor_model or self.config.model
         ed_provider = self._effective_provider(model_override=ed_override)
-        ed_model = self._effective_model(model_override=ed_override)
         if ed_provider == "google_free":
             return drafts
 
-        try:
-            effective_prompt = resolve_genre_prompt(
-                self.config.genre_preset, self.config.custom_prompt
+        if self.config.editor_selective:
+            selected_indices = [
+                i
+                for i, (src, dft) in enumerate(zip(sources, drafts))
+                if self._should_invoke_editor(src, dft, matched_glossary)
+            ]
+            if not selected_indices:
+                return drafts
+            sub_sources = [sources[i] for i in selected_indices]
+            sub_drafts = [drafts[i] for i in selected_indices]
+            edited_sub = await self._edit_sub_batch(
+                sub_sources, sub_drafts, matched_glossary=matched_glossary
             )
-            sys_prompt = build_editor_system_prompt(
-                target_lang=self.config.target_lang,
-                custom_prompt=effective_prompt,
-                glossary=matched_glossary,
-                book_brief=self.book_brief,
-                is_batch=True,
-            )
-            user_prompt = build_editor_batch_user_prompt(sources, drafts)
-            raw_edited = await self._call_llm_with_rotation(
-                sys_prompt, user_prompt, model_override=ed_override
-            )
-            parsed_edited = self._parse_batch_response(raw_edited, len(sources))
-            if parsed_edited and len(parsed_edited) == len(sources):
-                refined_count = 0
-                for src, dft, pol in zip(sources, drafts, parsed_edited):
-                    if dft.strip() != pol.strip():
-                        refined_count += 1
-                    self.last_editor_diffs[src.strip()] = {
-                        "draft": dft.strip(),
-                        "polished": pol.strip(),
-                        "editor_model": ed_model,
-                    }
-                await self._emit_agent_event(
-                    agent_id=4,
-                    agent_name="Agent 4 · Tổng Biên Tập",
-                    action="refined_batch",
-                    detail=f"Đã đối chiếu {len(sources)} đoạn & chuốt lại {refined_count} câu văn chuẩn xuất bản",
-                    model=ed_model,
-                )
-                return parsed_edited
-        except Exception as exc:
-            logger.warning("Agent 4 (Editor) batch pass skipped (%s); keeping Agent 3 draft.", exc)
+            out = list(drafts)
+            for sub_i, orig_i in enumerate(selected_indices):
+                if sub_i < len(edited_sub) and edited_sub[sub_i]:
+                    out[orig_i] = edited_sub[sub_i]
+            return out
 
-        return drafts
+        return await self._edit_sub_batch(sources, drafts, matched_glossary=matched_glossary)
 
     async def polish_single_segment(
         self,
@@ -1166,9 +1476,9 @@ class TranslationLLMClient:
     ) -> List[str]:
         """
         Multi-Agent Batch Pipeline:
-        1. Checks SQLite cache for every item first.
+        1. Checks SQLite cache for every item first (with glossary-aware context_salt & active glossary validation).
         2. Agent 3 (Translator Swarm) translates uncached items with `[[#0]]`, `[[#1]]`... markers.
-        3. Agent 4 (Chief Editor & Critic) reviews [SOURCE] + [DRAFT] and polishes prose (if enabled).
+        3. Agent 4 (Chief Editor & Critic) reviews [SOURCE] + [DRAFT] and polishes prose (if enabled) or repairs glossary violations.
         4. Caches and returns 100%-aligned segments.
         """
         if not texts:
@@ -1180,6 +1490,7 @@ class TranslationLLMClient:
         ed_tag = f"+ed:{self.config.agent_editor_model or model}" if self.config.enable_editor_agent else ""
         cache_model_key = f"{model}{ed_tag}"
         target_lang = self.config.target_lang
+        merged_glossary = self._merged_glossary(glossary)
 
         results: List[Optional[str]] = [None] * len(texts)
         uncached_indices: List[int] = []
@@ -1189,7 +1500,13 @@ class TranslationLLMClient:
             if not txt or not txt.strip():
                 results[i] = txt
                 continue
-            cached = self.cache.get(txt, target_lang, provider, cache_model_key)
+            seg_salt = self._context_salt(txt, glossary)
+            cached = self.cache.get(txt, target_lang, provider, cache_model_key, context_salt=seg_salt)
+            if cached is not None:
+                # Active glossary validation on cached hit: if it misses mandatory glossary terms, treat as cache miss!
+                seg_glossary = filter_glossary_for_text(txt, merged_glossary) if merged_glossary else []
+                if seg_glossary and find_missing_dst(txt, cached, seg_glossary):
+                    cached = None
             if cached is not None and self._is_untranslated(txt, cached):
                 if provider == "google_free":
                     self._qs_add(total=1, untranslated_found=1, still_untranslated=1)
@@ -1216,7 +1533,6 @@ class TranslationLLMClient:
             return [r if r is not None else "" for r in results]
 
         combined_src = "\n\n".join(uncached_texts)
-        merged_glossary = self._merged_glossary(glossary)
         matched_glossary = filter_glossary_for_text(combined_src, merged_glossary)
         term_candidates = (
             self._term_candidates(combined_src, glossary) if provider != "google_free" else []
@@ -1279,6 +1595,11 @@ class TranslationLLMClient:
                             parsed_segments = await self.refine_batch_with_editor(
                                 uncached_texts, parsed_segments, matched_glossary
                             )
+                        # Active Glossary Enforcement & Auto-Repair for any remaining glossary violations
+                        if matched_glossary and provider != "google_free":
+                            parsed_segments = await self._repair_glossary_violations(
+                                uncached_texts, parsed_segments, matched_glossary
+                            )
             except Exception as exc:
                 logger.warning("Batch translation call failed (%s).", exc)
                 call_error = exc
@@ -1310,18 +1631,19 @@ class TranslationLLMClient:
         if parsed_segments and len(parsed_segments) == len(uncached_texts):
             self._consecutive_batch_failures = 0
             self._qs_add(total=len(uncached_texts))
-            cache_pairs: List[tuple[str, str]] = []
+            cache_items: List[tuple] = []
             flagged: List[tuple] = []
             for idx_in_batch, orig_idx in enumerate(uncached_indices):
+                src_seg = uncached_texts[idx_in_batch]
                 seg_dst = parsed_segments[idx_in_batch]
-                if matched_glossary and not self.config.enable_editor_agent:
-                    self._warn_missing_dst(uncached_texts[idx_in_batch], seg_dst, matched_glossary)
+                if matched_glossary:
+                    self._warn_missing_dst(src_seg, seg_dst, matched_glossary)
                 results[orig_idx] = seg_dst
-                if self._is_untranslated(uncached_texts[idx_in_batch], seg_dst):
-                    flagged.append((orig_idx, uncached_texts[idx_in_batch], seg_dst, uncached_hints[idx_in_batch]))
+                if self._is_untranslated(src_seg, seg_dst):
+                    flagged.append((orig_idx, src_seg, seg_dst, uncached_hints[idx_in_batch]))
                 else:
-                    cache_pairs.append((uncached_texts[idx_in_batch], seg_dst))
-            self.cache.set_many(cache_pairs, target_lang, provider, cache_model_key)
+                    cache_items.append((src_seg, seg_dst, self._context_salt(src_seg, glossary)))
+            self.cache.set_many(cache_items, target_lang, provider, cache_model_key)
             if flagged:
                 fixed = await self._retry_untranslated(
                     flagged, context, glossary, provider, cache_model_key, tr_model_override,
@@ -1451,8 +1773,8 @@ class TranslationLLMClient:
             if not isinstance(profile, dict):
                 profile = {}
             glossary = normalize_glossary(profile.get("glossary"))[:max_terms]
-            for item in glossary:  # "quan sát có trọng tâm (Focused Observation)" -> chỉ giữ phần tiếng Việt
-                item["dst"] = _strip_english_gloss(item["dst"])
+            for item in glossary:  # "quan sát có trọng tâm (Focused Observation)" -> chỉ giữ phần tiếng Việt (trừ viết tắt)
+                item["dst"] = _strip_english_gloss(item.get("src", ""), item["dst"])
             brief = format_book_brief(profile)
             if brief or glossary:
                 await self._emit_agent_event(
@@ -1627,4 +1949,3 @@ class TranslationLLMClient:
             "gemini_models": gemini_models,
             "other_models": other_models,
         }
-

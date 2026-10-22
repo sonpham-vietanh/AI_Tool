@@ -93,9 +93,14 @@ class Unit:
     starts_bullet: bool = False
     ended_with_tab: bool = False
     protected: Dict[str, str] = field(default_factory=dict)
+    has_inline_styles: bool = False
+    markup_text: str = ""
+    rich_text: str = ""
+    max_lines: int = 1
     _dom_chars: int = 0
     _first_style: Optional[Tuple[float, Tuple[float, float, float], bool, bool, bool]] = None
     _last_style: Optional[Tuple[float, Tuple[float, float, float], bool, bool, bool]] = None
+    _styled_lines: List[List[Tuple[str, float, bool, bool]]] = field(default_factory=list)
 
 
 _SYMBOLIC_FONT_RE = re.compile(r"wingding|symbol|dingbat|webding|zapf", re.I)
@@ -135,8 +140,19 @@ def _rgb(c: int) -> Tuple[float, float, float]:
     return (((c >> 16) & 255) / 255.0, ((c >> 8) & 255) / 255.0, (c & 255) / 255.0)
 
 
+_SUP_DIGITS = str.maketrans("0123456789", "⁰¹²³⁴⁵⁶⁷⁸⁹")
+_PRESERVE_NFKC_CHARS = set("™®©⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾ⁿ")
+
+
+def _nfkc_preserve_superscripts(s: str) -> str:
+    """Chuẩn hóa NFKC nhưng giữ nguyên các ký tự superscript Unicode (¹²³...) và ™."""
+    if not s:
+        return ""
+    return "".join(c if c in _PRESERVE_NFKC_CHARS else unicodedata.normalize("NFKC", c) for c in s)
+
+
 def clean_text(raw: str) -> str:
-    text = unicodedata.normalize("NFKC", raw or "").replace("\u00ad", "")
+    text = _nfkc_preserve_superscripts(raw or "").replace("\u00ad", "")
     text = re.sub(r"([A-Za-z])-\s*\n\s*([a-z])", r"\1\2", text)
     text = re.sub(r"\s*\n+\s*", " ", text)
     return re.sub(r"[ \t\u00a0]{2,}", " ", text).strip()
@@ -387,8 +403,59 @@ def _explode_span(span: dict, vertical: bool) -> List[dict]:
     return out
 
 
+def _join_spans_with_gaps(spans: List[dict], vertical: bool) -> Tuple[str, List[Tuple[str, float, bool, bool]]]:
+    """Ghép các span trên cùng một dòng, chèn khoảng trắng nếu giữa 2 span có khoảng cách từ rõ rệt mà thiếu dấu cách,
+    đồng thời chuyển chữ số/TM mũ (superscript) sang ký tự Unicode chuẩn (¹²³... / ™)."""
+    raw_parts: List[str] = []
+    styled: List[Tuple[str, float, bool, bool]] = []
+    max_sz = max((float(sp.get("size", 10.0)) for sp in spans if (sp.get("text") or "").strip()), default=10.0)
+    for i, sp in enumerate(spans):
+        t = sp.get("text") or ""
+        if not t:
+            continue
+        sz, _, bold, italic, _ = _span_style(sp)
+        flags = int(sp.get("flags", 0))
+        is_sup_span = (sz < max_sz * 0.75) or bool(flags & 1)
+        t_strip = t.strip()
+        if is_sup_span and t_strip:
+            if t_strip.upper() == "TM":
+                t = t.replace(t_strip, "™")
+                sz = max_sz
+            elif t_strip.isdigit():
+                t = t.translate(_SUP_DIGITS)
+                sz = max_sz
+        if i > 0 and raw_parts:
+            prev_sp = spans[i - 1]
+            prev_t = raw_parts[-1]
+            prev_sz, _, prev_bold, prev_italic, _ = _span_style(prev_sp)
+            is_sup = is_sup_span or (sz < prev_sz * 0.75) or (prev_sz < sz * 0.75)
+            gap = (prev_sp["bbox"][1] - sp["bbox"][3]) if vertical else (sp["bbox"][0] - prev_sp["bbox"][2])
+            style_changed = (bold != prev_bold) or (italic != prev_italic)
+            pipe_boundary = prev_t.endswith("|") or t.startswith("|")
+            need_space = (
+                not is_sup
+                and not prev_t[-1].isspace()
+                and not t[0].isspace()
+                and (
+                    gap >= max(1.8, 0.18 * max(sz, prev_sz))
+                    or (
+                        gap >= -1.5
+                        and (style_changed or pipe_boundary)
+                        and prev_t[-1] not in "-–—([{/"
+                        and t[0] not in ",.;:!?)]}™⁰¹²³⁴⁵⁶⁷⁸⁹"
+                    )
+                )
+            )
+            if need_space:
+                t = " " + t
+        raw_parts.append(t)
+        styled.append((t, sz, bold, italic))
+    return clean_text("".join(raw_parts)), styled
+
+
 def _split_segments(spans: List[dict], vertical: bool, v_lines: Optional[List[fitz.Rect]] = None,
-                    h_lines: Optional[List[fitz.Rect]] = None) -> List[List[dict]]:
+                    h_lines: Optional[List[fitz.Rect]] = None,
+                    is_footer_or_header: bool = False) -> List[List[dict]]:
     """Tách một dòng thành các cụm cách nhau xa (ô bảng, cột) để mỗi cụm là một đoạn riêng."""
     if len(spans) < 2:
         return [spans]
@@ -399,21 +466,93 @@ def _split_segments(spans: List[dict], vertical: bool, v_lines: Optional[List[fi
     groups: List[List[dict]] = [[ordered[0]]]
     for sp in ordered[1:]:
         prev = groups[-1][-1]
-        size = max(float(sp.get("size", 10.0)), float(prev.get("size", 10.0)))
+        sp_sz = float(sp.get("size", 10.0))
+        prev_sz = float(prev.get("size", 10.0))
+        size = max(sp_sz, prev_sz)
+        is_sup = (sp_sz < prev_sz * 0.75) or (prev_sz < sp_sz * 0.75)
         if vertical:
             gap = prev["bbox"][1] - sp["bbox"][3]
             baseline_diff = abs(sp["bbox"][0] - prev["bbox"][0])
             crossed = bool(gap > 4.0 and h_lines and _has_h_line_between(sp["bbox"][3], prev["bbox"][1], min(prev["bbox"][0], sp["bbox"][0]), max(prev["bbox"][2], sp["bbox"][2]), h_lines))
-            split = gap > max(8.0, 1.0 * size) or baseline_diff > 3.5 or crossed or bool(prev.get("had_tab"))
+            split = (gap > max(8.0, 1.0 * size) and not is_sup) or baseline_diff > 3.5 or crossed or bool(prev.get("had_tab"))
         else:
             gap = sp["bbox"][0] - prev["bbox"][2]
             crossed = bool(gap > 4.0 and v_lines and _has_v_line_between(prev["bbox"][2], sp["bbox"][0], min(prev["bbox"][1], sp["bbox"][1]), max(prev["bbox"][3], sp["bbox"][3]), v_lines))
-            split = gap > max(8.0, 1.2 * size) or crossed or bool(prev.get("had_tab"))
+            max_gap = max(8.0, 1.2 * size)
+            if is_footer_or_header and (
+                "|" in (prev.get("text") or "")
+                or "|" in (sp.get("text") or "")
+                or is_only_urls(sp.get("text") or "")
+            ):
+                max_gap = max(max_gap, 25.0)
+            split = (gap > max_gap and not is_sup) or crossed or bool(prev.get("had_tab"))
         if split:
             groups.append([sp])
         else:
             groups[-1].append(sp)
     return groups
+
+
+def _merge_horizontal_units(units: List[Unit], page_h: float,
+                            v_lines: Optional[List[fitz.Rect]] = None) -> List[Unit]:
+    """Hợp nhất các hộp chữ nằm ngang liền kề trên cùng một dòng cơ sở (đặc biệt là chân trang bị tách đôi
+    như 'National Center for Pyramid Model Innovations |' + 'ChallengingBehavior.org' hoặc span cùng dòng bị PDF tách line)."""
+    if len(units) < 2:
+        return units
+    used = [False] * len(units)
+    out: List[Unit] = []
+    for i, a in enumerate(units):
+        if used[i]:
+            continue
+        if a.vertical or len(a.line_rects) != 1:
+            out.append(a)
+            continue
+        # Tìm các đoạn đơn dòng nằm ngay bên phải a trên cùng baseline
+        merged_any = True
+        while merged_any:
+            merged_any = False
+            best_j = -1
+            best_gap = 1e9
+            in_margin_band = (a.rect.y0 > page_h * 0.90) or (a.rect.y1 < page_h * 0.08)
+            for j, b in enumerate(units):
+                if j == i or used[j] or b.vertical or len(b.line_rects) != 1 or b.page != a.page:
+                    continue
+                if abs(a.size - b.size) > 1.5:
+                    continue
+                if abs(a.rect.y0 - b.rect.y0) > max(3.5, 0.3 * a.size) or abs(a.rect.y1 - b.rect.y1) > max(3.5, 0.3 * a.size):
+                    continue
+                if (a.container is None) != (b.container is None):
+                    continue
+                if a.container is not None and b.container is not None and tuple(a.container) != tuple(b.container):
+                    continue
+                gap = b.rect.x0 - a.rect.x1
+                if gap < -2.0:
+                    continue
+                if v_lines and _has_v_line_between(a.rect.x1, b.rect.x0, min(a.rect.y0, b.rect.y0), max(a.rect.y1, b.rect.y1), v_lines):
+                    continue
+                footer_pair = in_margin_band and gap < 25.0 and (
+                    "|" in a.text or "|" in b.text or is_only_urls(b.text) or is_only_urls(a.text)
+                )
+                inline_pair = (not a.ended_with_tab and not b.starts_bullet and gap <= max(6.5, 0.7 * a.size))
+                if (footer_pair or inline_pair) and gap < best_gap:
+                    best_gap = gap
+                    best_j = j
+            if best_j >= 0:
+                b = units[best_j]
+                used[best_j] = True
+                a.rect |= b.rect
+                a.line_rects = [a.line_rects[0] | b.line_rects[0]]
+                a.text = clean_text(a.text + " " + b.text)
+                a.ended_with_tab = b.ended_with_tab
+                a._last_style = b._last_style
+                if a._styled_lines and b._styled_lines:
+                    a._styled_lines[-1] = a._styled_lines[-1] + [(" ", a.size, False, False)] + b._styled_lines[0]
+                if len(b.text) > a._dom_chars and not is_only_urls(b.text):
+                    a.size, a.color, a.bold, a.italic, a.serif = b.size, b.color, b.bold, b.italic, b.serif
+                    a._dom_chars = len(b.text)
+                merged_any = True
+        out.append(a)
+    return out
 
 
 def _merge_units(units: List[Unit], v_lines: Optional[List[fitz.Rect]] = None,
@@ -428,6 +567,7 @@ def _merge_units(units: List[Unit], v_lines: Optional[List[fitz.Rect]] = None,
             prev.text = clean_text(prev.text + " " + u.text)
             prev.ended_with_tab = u.ended_with_tab
             prev._last_style = u._last_style
+            prev._styled_lines.extend(u._styled_lines)
             if len(u.text) > prev._dom_chars:
                 prev.size, prev.color, prev.bold, prev.italic, prev.serif = u.size, u.color, u.bold, u.italic, u.serif
                 prev._dom_chars = len(u.text)
@@ -435,6 +575,7 @@ def _merge_units(units: List[Unit], v_lines: Optional[List[fitz.Rect]] = None,
         u._dom_chars = len(u.text)
         merged.append(u)
     for u in merged:
+        u.max_lines = max(1, len(u.line_rects))
         if len(u.line_rects) > 1:
             if u.vertical:
                 xs = sorted(l.x0 for l in u.line_rects)
@@ -443,6 +584,95 @@ def _merge_units(units: List[Unit], v_lines: Optional[List[fitz.Rect]] = None,
             diffs = [b - a for a, b in zip(xs, xs[1:]) if b - a > 0.1]
             u.pitch = statistics.median(diffs) if diffs else 0.0
     return merged
+
+
+def _finalize_unit_markup(u: Unit) -> None:
+    """Xây dựng `markup_text` / `rich_text` có gắn thẻ <b>, <i>, <sup> khi đoạn văn có định dạng hỗn hợp."""
+    u.max_lines = max(1, len(u.line_rects))
+    non_ws = [(t, sz, b, it) for line in u._styled_lines for (t, sz, b, it) in line if t and t.strip()]
+    if not non_ws:
+        u.has_inline_styles = False
+        u.markup_text = u.text
+        u.rich_text = u.text
+        return
+
+    def is_sup(t: str, sz: float) -> bool:
+        return sz < u.size * 0.75 and len(t.strip()) <= 8
+
+    # Nếu có chữ số hoặc TM mũ so với u.size tổng thể (sau khi gom nhiều dòng), chuẩn hóa sang ¹²³ / ™ trong cả u.text
+    text_updated = False
+    for line in u._styled_lines:
+        for idx_s, (t, sz, b, it) in enumerate(line):
+            ts = (t or "").strip()
+            if ts and is_sup(t, sz):
+                if ts.upper() == "TM":
+                    line[idx_s] = (t.replace(ts, "™"), u.size, b, it)
+                    text_updated = True
+                elif ts.isdigit():
+                    line[idx_s] = (t.translate(_SUP_DIGITS), u.size, b, it)
+                    text_updated = True
+    if text_updated:
+        u.text = clean_text(" ".join("".join(t for (t, _, _, _) in line) for line in u._styled_lines))
+        non_ws = [(t, sz, b, it) for line in u._styled_lines for (t, sz, b, it) in line if t and t.strip()]
+
+    non_sup = [(t, sz, b, it) for (t, sz, b, it) in non_ws if not is_sup(t, sz)]
+    has_sup = len(non_sup) < len(non_ws)
+    has_mixed_bold = len({b for (_, _, b, _) in non_sup}) > 1
+    has_mixed_italic = len({it for (_, _, _, it) in non_sup}) > 1
+
+    if not (has_sup or has_mixed_bold or has_mixed_italic):
+        u.has_inline_styles = False
+        u.markup_text = u.text
+        u.rich_text = u.text
+        return
+
+    # Gom các span liên tiếp có cùng trạng thái (sup, bold, italic) qua các dòng
+    runs: List[Tuple[str, Tuple[bool, bool, bool]]] = []
+    for li, line in enumerate(u._styled_lines):
+        for si, (t, sz, b, it) in enumerate(line):
+            if not t:
+                continue
+            sup_flag = is_sup(t, sz) if t.strip() else False
+            b_flag = (not sup_flag) and has_mixed_bold and b
+            i_flag = (not sup_flag) and has_mixed_italic and it
+            state = (sup_flag, b_flag, i_flag)
+            piece = t
+            if li < len(u._styled_lines) - 1 and si == len(line) - 1:
+                piece = piece + "\n"
+            if runs and runs[-1][1] == state:
+                runs[-1] = (runs[-1][0] + piece, state)
+            elif not t.strip() and runs:
+                runs[-1] = (runs[-1][0] + piece, runs[-1][1])
+            else:
+                runs.append((piece, state))
+
+    parts: List[str] = []
+    for raw_piece, (sup_flag, b_flag, i_flag) in runs:
+        norm = _nfkc_preserve_superscripts(raw_piece or "").replace("\u00ad", "")
+        norm = re.sub(r"([A-Za-z])-\s*\n\s*([a-z])", r"\1\2", norm)
+        norm = re.sub(r"\s*\n+\s*", " ", norm)
+        norm = re.sub(r"[ \t\u00a0]{2,}", " ", norm)
+        if not norm:
+            continue
+        lead = " " if norm[0].isspace() else ""
+        trail = " " if norm[-1].isspace() else ""
+        core = norm.strip()
+        if not core:
+            if lead or trail:
+                parts.append(" ")
+            continue
+        if sup_flag:
+            core = f"<sup>{core}</sup>"
+        if i_flag:
+            core = f"<i>{core}</i>"
+        if b_flag:
+            core = f"<b>{core}</b>"
+        parts.append(f"{lead}{core}{trail}")
+
+    markup = re.sub(r" {2,}", " ", "".join(parts)).strip()
+    u.has_inline_styles = bool(markup and markup != u.text)
+    u.markup_text = markup if u.has_inline_styles else u.text
+    u.rich_text = u.markup_text
 
 
 def _styles_compatible(a: Unit, b: Unit) -> bool:
@@ -466,6 +696,9 @@ def _styles_compatible(a: Unit, b: Unit) -> bool:
         if a.bold and not b.bold and not a.starts_bullet and len(a.line_rects) == 1:
             if not (a_txt and a_txt[-1] not in ".?!:" and b_txt and b_txt[0].islower()):
                 return False
+        # Không nối nếu dòng trên đã kết thúc câu và dòng dưới là đề mục/câu hỏi in đậm mới
+        if not a.bold and b.bold and a_txt and a_txt[-1] in ".?!" and b_txt and b_txt[0].isupper():
+            return False
         # Nếu dòng trên chưa kết thúc câu hoặc dòng dưới bắt đầu bằng chữ thường -> cùng một câu bị ngắt dòng
         if (a_txt and a_txt[-1] not in ".?!:") or (b_txt and b_txt[0].islower()):
             return True
@@ -476,7 +709,7 @@ def _can_merge(a: Unit, b: Unit, v_lines: Optional[List[fitz.Rect]] = None,
                h_lines: Optional[List[fitz.Rect]] = None) -> bool:
     if b.starts_bullet or a.ended_with_tab or a.vertical != b.vertical or a.page != b.page:
         return False
-    if re.match(r"^\s*(?:\d{1,3}[.)]?|[A-Za-z][.)])\s+\S", b.text):
+    if re.match(r"^\s*(?:\d{1,3}[.)]?|[A-Za-z][.)]|[IVX]{1,4}\.)\s+\S", b.text):
         return False  # dòng mới bắt đầu bằng số/chữ đánh số (chú thích 13., a), ...) là mục riêng
     if not _styles_compatible(a, b):
         return False
@@ -548,6 +781,7 @@ def extract_units(doc: fitz.Document, pages: Optional[set] = None) -> List[Unit]
         if pages is not None and pno not in pages:
             continue
         page = doc[pno]
+        page_h = page.rect.height
         drawn = _drawn_rects(page)
         v_lines, h_lines = _extract_vector_lines(page)
         scale = 2.0
@@ -575,9 +809,17 @@ def extract_units(doc: fitz.Document, pages: Optional[set] = None) -> List[Unit]
                     continue
                 if pending_bullet:
                     starts_bullet, pending_bullet = True, False
-                segments = _split_segments(all_spans, vertical, v_lines=v_lines, h_lines=h_lines)
+                line_y0 = min(sp["bbox"][1] for sp in all_spans)
+                line_y1 = max(sp["bbox"][3] for sp in all_spans)
+                if line_y0 < -0.5 or line_y1 <= 18.0:
+                    continue
+                is_footer_or_header = (not vertical) and (line_y0 > page_h * 0.90 or line_y1 < page_h * 0.08)
+                segments = _split_segments(
+                    all_spans, vertical, v_lines=v_lines, h_lines=h_lines,
+                    is_footer_or_header=is_footer_or_header,
+                )
                 for gi, spans in enumerate(segments):
-                    text = clean_text("".join(sp["text"] for sp in spans))
+                    text, styled_line = _join_spans_with_gaps(spans, vertical)
                     bbox = fitz.Rect(
                         min(sp["bbox"][0] for sp in spans), min(sp["bbox"][1] for sp in spans),
                         max(sp["bbox"][2] for sp in spans), max(sp["bbox"][3] for sp in spans),
@@ -614,9 +856,11 @@ def extract_units(doc: fitz.Document, pages: Optional[set] = None) -> List[Unit]
                         _dom_chars=len(text),
                         _first_style=_span_style(spans[0]),
                         _last_style=_span_style(spans[-1]),
+                        _styled_lines=[styled_line],
                     )
                     page_units.append(u)
 
+        page_units = _merge_horizontal_units(page_units, page_h, v_lines=v_lines)
         page_units = _merge_units(page_units, v_lines=v_lines, h_lines=h_lines)
         # Ghép Drop-Cap (nếu có) vào đoạn văn ngay bên phải nó
         for dc_char, dc_rect, _ in dropcaps:
@@ -626,10 +870,15 @@ def extract_units(doc: fitz.Document, pages: Optional[set] = None) -> List[Unit]
                 l0 = u.line_rects[0]
                 if -4.0 <= (l0.x0 - dc_rect.x1) <= 16.0 and dc_rect.y0 - 6.0 <= l0.y0 <= dc_rect.y1:
                     u.text = dc_char + u.text
+                    if u._styled_lines and u._styled_lines[0]:
+                        first_t, first_sz, first_b, first_i = u._styled_lines[0][0]
+                        u._styled_lines[0][0] = (dc_char + first_t, first_sz, first_b, first_i)
                     u.line_rects.insert(0, fitz.Rect(dc_rect))
                     u.rect.x0 = min(u.rect.x0, dc_rect.x0)
                     break
         page_units = _deduplicate_units(page_units)
+        for u in page_units:
+            _finalize_unit_markup(u)
         _detect_alignment(page_units, page)
         units.extend(page_units)
     return units
@@ -724,6 +973,33 @@ def _free_right(u: Unit, others: List[Unit], limit: float,
     return max(right, min_line_x1)
 
 
+def _free_left(u: Unit, others: List[Unit], limit: float,
+               v_lines: Optional[List[fitz.Rect]] = None,
+               obstacles: Optional[List[fitz.Rect]] = None,
+               drawn: Optional[List[fitz.Rect]] = None) -> float:
+    """Mép trái tối thiểu có thể mở rộng sang trái mà không đè chữ khác, khung bên cạnh hoặc đường kẻ bảng."""
+    left = limit
+    for o in others:
+        if o is u or o.page != u.page or o.vertical:
+            continue
+        if o.rect.y1 > u.rect.y0 + 1 and o.rect.y0 < u.rect.y1 - 1 and o.rect.x1 <= u.rect.x0 + 0.5:
+            left = max(left, o.rect.x1 + 3)
+    for sr in obstacles or []:
+        if sr.y1 > u.rect.y0 + 1 and sr.y0 < u.rect.y1 - 1 and sr.x1 <= u.rect.x0 + 0.5:
+            left = max(left, sr.x1 + 3)
+    for vl in v_lines or []:
+        if vl.y1 > u.rect.y0 + 2 and vl.y0 < u.rect.y1 - 2 and vl.x1 <= u.rect.x0 + 1.0:
+            left = max(left, vl.x1 + 2.5)
+    for dr in drawn or []:
+        if u.container is not None and tuple(dr) == tuple(u.container):
+            continue
+        if dr.contains(u.rect):
+            continue
+        if dr.y1 > u.rect.y0 + 2 and dr.y0 < u.rect.y1 - 2 and dr.x1 <= u.rect.x0 + 1.0:
+            left = max(left, dr.x1 + 4.0)
+    return min(left, u.rect.x0)
+
+
 def _free_bottom(u: Unit, others: List[Unit], limit: float,
                  h_lines: Optional[List[fitz.Rect]] = None,
                  obstacles: Optional[List[fitz.Rect]] = None) -> float:
@@ -782,20 +1058,27 @@ def _target_box(u: Unit, page_rect: fitz.Rect, others: List[Unit],
         x_left, x_right = c.x0 + pad, c.x1 - pad
         y_bottom_limit = c.y1 - 1.0
     else:
-        x_left, x_right = r.x0, min(page_rect.x1 - margin, r.x1 + max(6.0, r.width * 0.06))
+        x_left = max(page_rect.x0 + margin, r.x0 - max(6.0, r.width * 0.25))
+        x_right = min(page_rect.x1 - margin, r.x1 + max(6.0, r.width * 0.06))
+        if r.y0 > page_rect.height * 0.90 and u.align == "left":
+            # Chân trang canh trái cho phép mở rộng sang phải tới trước số trang / vật cản
+            x_right = max(x_right, page_rect.x1 - margin * 2.5)
         y_bottom_limit = min(page_rect.y1 - margin, r.y1 + max(10.0, r.height * 0.6))
 
+    free_r = _free_right(u, others, x_right, v_lines=v_lines, obstacles=obstacles, drawn=drawn)
+    free_l = _free_left(u, others, x_left, v_lines=v_lines, obstacles=obstacles, drawn=drawn)
+
     if u.align == "left":
-        free_r = _free_right(u, others, x_right, v_lines=v_lines, obstacles=obstacles, drawn=drawn)
         right = min(x_right, free_r)
         box = fitz.Rect(r.x0, r.y0, right, r.y1)
     elif u.align == "center":
-        half = max(r.width / 2, (x_right - x_left) / 2)
         cx = (r.x0 + r.x1) / 2
-        half = min(half, cx - x_left, x_right - cx) if c is not None else r.width / 2 * 1.15
+        avail_half = min(cx - max(x_left, free_l), min(x_right, free_r) - cx)
+        want_half = max(r.width / 2, (x_right - x_left) / 2) if c is not None else r.width / 2 * 1.15
+        half = max(r.width / 2, min(want_half, avail_half))
         box = fitz.Rect(cx - half, r.y0, cx + half, r.y1)
     else:
-        left = min(r.x0, max(x_left, r.x0 - r.width * 0.25))
+        left = min(r.x0, max(x_left, free_l))
         box = fitz.Rect(left, r.y0, r.x1, r.y1)
     box.y1 = max(box.y1, min(y_bottom_limit, _free_bottom(u, others, y_bottom_limit, h_lines=h_lines, obstacles=obstacles)))
     return box
@@ -810,7 +1093,10 @@ def _fits(font: fitz.Font, box: fitz.Rect, text: str, size: float, lh: Optional[
     return not rest
 
 
-_MARKUP_TAG_RE = re.compile(r"</?(?:b|i|u|em|strong|span|sup|sub)\b[^>]*>", re.I)
+_MARKUP_TAG_RE = re.compile(r"</?(?:b|i|u|em|strong|span|sup|sub|br)\b[^>]*>", re.I)
+_INLINE_HTML_RE = re.compile(r"<(?:b|strong|i|em|u|sup|sub|br)\b|\*\*[^*]+\*\*", re.I)
+_ALLOWED_HTML_TAG_RE = re.compile(r"</?(?:b|strong|i|em|u|sup|sub|br)\s*/?>", re.I)
+_html_archive_cache: Dict[Tuple[bool, Optional[str]], Tuple[Optional[fitz.Archive], str, str]] = {}
 
 
 def _strip_markup_tags(text: str) -> str:
@@ -818,6 +1104,93 @@ def _strip_markup_tags(text: str) -> str:
     out = _MARKUP_TAG_RE.sub("", text or "")
     out = re.sub(r"\*\*([^*]+)\*\*", r"\1", out)
     return out
+
+
+def _has_inline_markup(text: str) -> bool:
+    return bool(text and _INLINE_HTML_RE.search(text))
+
+
+def _prepare_html_body(text: str) -> str:
+    """Chuẩn hóa nội dung HTML an toàn cho insert_htmlbox (chuyển **bold** -> <b>, escape ký tự '&', '<', '>' ngoài thẻ)."""
+    s = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", text or "")
+    tokens: List[str] = []
+
+    def save_tag(m: re.Match) -> str:
+        idx = len(tokens)
+        tokens.append(m.group(0))
+        return f"\x00TAG{idx}\x00"
+
+    masked = _ALLOWED_HTML_TAG_RE.sub(save_tag, s)
+    masked = re.sub(r"&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)", "&amp;", masked)
+    masked = masked.replace("<", "&lt;").replace(">", "&gt;")
+    for idx, tag in enumerate(tokens):
+        masked = masked.replace(f"\x00TAG{idx}\x00", tag)
+    return masked
+
+
+def _get_html_archive_and_css(serif: bool, fallback_font: Optional[str] = None) -> Tuple[Optional[fitz.Archive], str, str]:
+    key = (serif, fallback_font)
+    if key in _html_archive_cache:
+        return _html_archive_cache[key]
+    p_reg = resolve_font_path(serif, False, False, fallback_font)
+    if not p_reg:
+        _html_archive_cache[key] = (None, "", "")
+        return None, "", ""
+    p_bold = resolve_font_path(serif, True, False, fallback_font) or p_reg
+    p_italic = resolve_font_path(serif, False, True, fallback_font) or p_reg
+    p_bi = resolve_font_path(serif, True, True, fallback_font) or p_bold or p_reg
+    dirs = list({os.path.dirname(p) for p in (p_reg, p_bold, p_italic, p_bi) if p})
+    try:
+        archive = fitz.Archive(dirs) if len(dirs) > 1 else fitz.Archive(dirs[0])
+    except Exception:
+        archive = None
+    fam = "SerifVI" if serif else "SansVI"
+    css = (
+        f'@font-face {{ font-family: "{fam}"; src: url("{os.path.basename(p_reg)}"); font-weight: normal; font-style: normal; }}\n'
+        f'@font-face {{ font-family: "{fam}"; src: url("{os.path.basename(p_bold)}"); font-weight: bold; font-style: normal; }}\n'
+        f'@font-face {{ font-family: "{fam}"; src: url("{os.path.basename(p_italic)}"); font-weight: normal; font-style: italic; }}\n'
+        f'@font-face {{ font-family: "{fam}"; src: url("{os.path.basename(p_bi)}"); font-weight: bold; font-style: italic; }}\n'
+        "body { margin: 0; padding: 0; }\n"
+    )
+    _html_archive_cache[key] = (archive, css, fam)
+    return archive, css, fam
+
+
+def _render_htmlbox(page: fitz.Page, u: Unit, box: fitz.Rect, fallback_font: Optional[str] = None) -> Optional[Tuple[float, float]]:
+    """Dựng hộp chữ giàu định dạng (<b>, <i>, <sup>) bằng page.insert_htmlbox; trả về (spare_height, scale) hoặc None nếu cần fallback."""
+    if not hasattr(page, "insert_htmlbox"):
+        return None
+    archive, css, fam = _get_html_archive_and_css(u.serif, fallback_font)
+    if archive is None or not fam:
+        return None
+    html_body = _prepare_html_body(u.dst)
+    has_b = bool(re.search(r"<(?:b|strong)\b", html_body, re.I))
+    has_i = bool(re.search(r"<(?:i|em)\b", html_body, re.I))
+    fw = "bold" if (u.bold and not has_b) else "normal"
+    fs = "italic" if (u.italic and not has_i) else "normal"
+    r_i = max(0, min(255, int(round(u.color[0] * 255))))
+    g_i = max(0, min(255, int(round(u.color[1] * 255))))
+    b_i = max(0, min(255, int(round(u.color[2] * 255))))
+    col_hex = f"#{r_i:02x}{g_i:02x}{b_i:02x}"
+    lh = max(1.12, min(1.45, u.pitch / u.size)) if (u.pitch and u.size) else (1.12 if u.size >= 14.0 else 1.18)
+    rot = 90 if u.vertical else 0
+    html_str = (
+        f'<div style="font-family:{fam}; font-size:{u.size}pt; font-weight:{fw}; '
+        f'font-style:{fs}; color:{col_hex}; text-align:{u.align}; line-height:{lh:.2f};">'
+        f"{html_body}</div>"
+    )
+    try:
+        res = page.insert_htmlbox(box, html_str, css=css, archive=archive, rotate=rot, scale_low=0.35)
+        if isinstance(res, tuple) and len(res) == 2:
+            spare_h, scale = float(res[0]), float(res[1])
+        else:
+            spare_h, scale = float(res), 1.0
+        if spare_h < 0:
+            return None
+        return spare_h, scale
+    except Exception as exc:
+        logger.debug("insert_htmlbox fallback to TextWriter: %s", exc)
+        return None
 
 
 def _trim_form_underscores(font: fitz.Font, box: fitz.Rect, text: str, size: float, lh: Optional[float], align: int) -> str:
@@ -900,6 +1273,18 @@ def render_units(doc: fitz.Document, units: List[Unit], fallback_font: Optional[
             clean_dst = _strip_markup_tags(u.dst)
             if u.vertical:
                 top = _free_up(u, units, 14.0, h_lines=h_lines, obstacles=obstacles)
+                if _has_inline_markup(u.dst):
+                    html_box = fitz.Rect(
+                        u.rect.x0 - 1.5, top,
+                        u.rect.x1 + max(2.5, u.size * 0.25), u.rect.y1 + 1.5,
+                    )
+                    html_res = _render_htmlbox(page, u, html_box, fallback_font)
+                    if html_res is not None:
+                        _, scale = html_res
+                        stats["rendered"] += 1
+                        if scale < 0.99:
+                            stats["shrunk"] += 1
+                        continue
                 W = max(u.rect.height, min(u.rect.y1 - top, u.rect.height * 1.8))
                 H = u.rect.width + max(0.0, u.size * 0.2)
                 local = fitz.Rect(u.rect.x0, u.rect.y1, u.rect.x0 + W, u.rect.y1 + H)
@@ -910,6 +1295,18 @@ def render_units(doc: fitz.Document, units: List[Unit], fallback_font: Optional[
                        morph=(fitz.Point(u.rect.x0, u.rect.y1), fitz.Matrix(90)))
             else:
                 box0 = _target_box(u, page.rect, units, v_lines=v_lines, h_lines=h_lines, obstacles=obstacles, drawn=drawn)
+                if _has_inline_markup(u.dst):
+                    html_box = fitz.Rect(
+                        box0.x0, box0.y0 - 1.5,
+                        box0.x1, max(box0.y1, u.rect.y1 + max(2.5, u.size * 0.3)),
+                    )
+                    html_res = _render_htmlbox(page, u, html_box, fallback_font)
+                    if html_res is not None:
+                        _, scale = html_res
+                        stats["rendered"] += 1
+                        if scale < 0.99:
+                            stats["shrunk"] += 1
+                        continue
                 tight = fitz.Rect(box0.x0, box0.y0, box0.x1, min(box0.y1, u.rect.y1 + 0.5))
                 dst_text = _trim_form_underscores(font, tight, clean_dst, u.size, lh, align)
                 size, box = _choose_size(font, box0, dst_text, u.size, lh, align, tight=tight)

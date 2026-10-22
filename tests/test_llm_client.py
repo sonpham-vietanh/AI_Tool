@@ -241,3 +241,70 @@ def test_extract_book_profile_with_fake_llm(make_client):
     res = run(cl.extract_book_profile("some sample text"))
     assert "novel" in res["brief"] and "short sentences" in res["brief"]
     assert res["glossary"][0]["src"] == "Arrakis"
+
+
+def test_strip_english_gloss_preserves_acronyms_and_strips_plain_english():
+    from backend.llm.client import _strip_english_gloss
+
+    # Giữ nguyên các từ viết tắt chữ hoa trong ngoặc như (PBC), (TPOT), (TACSEI), (IEP)
+    assert _strip_english_gloss("Practice-Based Coaching", "Huấn luyện dựa trên thực hành (PBC)") == "Huấn luyện dựa trên thực hành (PBC)"
+    assert _strip_english_gloss("Teaching Pyramid Observation Tool", "Công cụ quan sát Kim tự tháp Giảng dạy (TPOT)") == "Công cụ quan sát Kim tự tháp Giảng dạy (TPOT)"
+    assert _strip_english_gloss("Huấn luyện dựa trên thực hành (PBC)") == "Huấn luyện dựa trên thực hành (PBC)"
+    # Loại bỏ phần giải nghĩa tiếng Anh thường ở cuối
+    assert _strip_english_gloss("Focused Observation", "Quan sát có trọng tâm (Focused Observation)") == "Quan sát có trọng tâm"
+    # Giữ nguyên nếu nằm trong glossary dst
+    gl = [{"src": "Action Plan", "dst": "Kế hoạch hành động (Action Plan)"}]
+    assert _strip_english_gloss("Action Plan", "Kế hoạch hành động (Action Plan)", glossary=gl) == "Kế hoạch hành động (Action Plan)"
+
+
+def test_is_llm_refusal_detects_copyright_refusals_and_invalidates_cache(make_client, cache):
+    from backend.llm.client import _is_llm_refusal
+
+    src = "Use the Observation Form to record notes during the session."
+    refusal_vi = "Không dịch trọn đoạn này vì đây là văn bản có bản quyền. Tóm tắt: Sử dụng biểu mẫu quan sát."
+    refusal_en = "I'm sorry, I can't translate this copyrighted passage verbatim."
+    normal_vi = "Sử dụng Biểu mẫu Quan sát để ghi chép trong buổi làm việc."
+
+    assert _is_llm_refusal(src, refusal_vi) is True
+    assert _is_llm_refusal(src, refusal_en) is True
+    assert _is_llm_refusal(src, normal_vi) is False
+    # Nếu bản gốc thực sự nói về bản quyền thì câu dịch chứa "văn bản có bản quyền" là hợp lệ
+    assert _is_llm_refusal("This copyrighted text may not be reproduced.", "Văn bản có bản quyền này không được sao chép.") is False
+
+    # Kiểm tra khi cache bị nhiễm câu từ chối bản quyền, translate_batch tự coi là cache miss và dịch lại
+    cl = make_client(handler=lambda s, u, m: "[[#0]] Bản dịch chuẩn 1\n[[#1]] Bản dịch chuẩn 2")
+    salt = cl._context_salt(src, None)
+    cache.set(src, refusal_vi, "Tiếng Việt", "openai", "test-model", context_salt=salt)
+    out = run(cl.translate_batch([src, "Second normal sentence here."]))
+    assert out[0] == "Bản dịch chuẩn 1"
+    assert "Không dịch trọn đoạn này" not in out[0]
+
+
+def test_active_glossary_enforcement_and_auto_repair_with_context_salt(make_client, cache):
+    gl = [{"src": "Practice-Based Coaching", "dst": "Huấn luyện dựa trên thực hành (PBC)"}]
+    src1 = "Welcome to Practice-Based Coaching for teachers."
+    src2 = "This guide explains the steps clearly."
+
+    # 1) Cache lưu sẵn một bản dịch cũ vi phạm glossary (dịch sai/thiếu thuật ngữ bắt buộc)
+    cl_seed = make_client()
+    cache.set(src1, "Chào mừng đến với phương pháp huấn luyện cho giáo viên.", "Tiếng Việt", "openai", "test-model")
+
+    # 2) Khi chạy translate_batch kèm glossary:
+    #    - Bản cache cũ bị phát hiện thiếu "Huấn luyện dựa trên thực hành (PBC)" -> bị bác bỏ
+    #    - Giả sử lượt dịch đầu của Agent 3 vẫn quên thuật ngữ -> cơ chế _repair_glossary_violations tự động gọi sửa
+    calls_log = []
+
+    def handler(sys_p, user_p, model):
+        calls_log.append((sys_p, user_p))
+        if "GLOSSARY ENFORCEMENT" in sys_p or "[DRAFT]" in user_p:
+            return "[[#0]] Chào mừng đến với Huấn luyện dựa trên thực hành (PBC) dành cho giáo viên."
+        return (
+            "[[#0]] Chào mừng đến với chương trình huấn luyện dành cho giáo viên.\n"
+            "[[#1]] Tài liệu hướng dẫn này giải thích rõ các bước."
+        )
+
+    cl = make_client(handler=handler)
+    out = run(cl.translate_batch([src1, src2], glossary=gl))
+    assert "Huấn luyện dựa trên thực hành (PBC)" in out[0]
+    assert out[1] == "Tài liệu hướng dẫn này giải thích rõ các bước."
+    assert len(calls_log) == 2  # 1 lượt dịch batch + 1 lượt auto-repair cho đúng câu vi phạm glossary

@@ -6,6 +6,8 @@ import time
 from pathlib import Path
 from typing import Dict, Optional
 
+CACHE_SCHEMA_VERSION = "v3"
+
 
 class TranslationCache:
     """
@@ -52,10 +54,16 @@ class TranslationCache:
 
     @staticmethod
     def make_hash(
-        src_text: str, target_lang: str, provider: str, model: str
+        src_text: str,
+        target_lang: str,
+        provider: str,
+        model: str,
+        context_salt: str = "",
     ) -> str:
         normalized_src = src_text.strip()
         raw = f"{provider.strip().lower()}|{model.strip().lower()}|{target_lang.strip().lower()}|{normalized_src}"
+        if context_salt:
+            raw = f"{raw}|{context_salt.strip()}"
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
     def get(
@@ -64,11 +72,14 @@ class TranslationCache:
         target_lang: str,
         provider: str = "any",
         model: str = "any",
+        context_salt: str = "",
     ) -> Optional[str]:
         if not src_text or not src_text.strip():
             return src_text
 
-        hash_key = self.make_hash(src_text, target_lang, provider, model)
+        hash_key = self.make_hash(
+            src_text, target_lang, provider, model, context_salt=context_salt
+        )
         with self._lock:
             cursor = self._conn.cursor()
             cursor.execute(
@@ -78,11 +89,39 @@ class TranslationCache:
             if row:
                 return row[0]
 
+            if context_salt:
+                plain_key = self.make_hash(src_text, target_lang, provider, model)
+                cursor.execute(
+                    "SELECT dst_text FROM cache WHERE hash_key = ?", (plain_key,)
+                )
+                row_plain = cursor.fetchone()
+                if row_plain:
+                    return row_plain[0]
+
             # Chỉ cho phép dùng lại bản sửa tay của người dùng (không dùng bản dịch của model/provider khác)
-            override_key = self.make_hash(src_text, target_lang, "manual_override", "editor_override")
-            cursor.execute("SELECT dst_text FROM cache WHERE hash_key = ?", (override_key,))
+            override_key = self.make_hash(
+                src_text, target_lang, "manual_override", "editor_override"
+            )
+            cursor.execute(
+                "SELECT dst_text FROM cache WHERE hash_key = ?", (override_key,)
+            )
             row_override = cursor.fetchone()
             return row_override[0] if row_override else None
+
+    def get_many(
+        self,
+        src_texts: list[str],
+        target_lang: str,
+        provider: str = "any",
+        model: str = "any",
+        context_salt: str = "",
+    ) -> Dict[str, str]:
+        result: Dict[str, str] = {}
+        for s in src_texts:
+            val = self.get(s, target_lang, provider, model, context_salt=context_salt)
+            if val is not None:
+                result[s] = val
+        return result
 
     def set(
         self,
@@ -91,14 +130,22 @@ class TranslationCache:
         target_lang: str,
         provider: str = "google_free",
         model: str = "default",
+        context_salt: str = "",
     ) -> None:
         if not src_text or not src_text.strip() or not dst_text or not dst_text.strip():
             return
 
-        hash_key = self.make_hash(src_text, target_lang, provider, model)
+        hash_key = self.make_hash(
+            src_text, target_lang, provider, model, context_salt=context_salt
+        )
         now = time.time()
         with self._lock:
             cursor = self._conn.cursor()
+            if not context_salt:
+                cursor.execute(
+                    "DELETE FROM cache WHERE src_text = ? AND target_lang = ? AND provider = ? AND model = ?",
+                    (src_text.strip(), target_lang.strip(), provider.strip(), model.strip()),
+                )
             cursor.execute(
                 """
                 INSERT OR REPLACE INTO cache
@@ -115,23 +162,50 @@ class TranslationCache:
                     now,
                 ),
             )
+            if context_salt:
+                plain_key = self.make_hash(src_text, target_lang, provider, model)
+                if plain_key != hash_key:
+                    cursor.execute(
+                        """
+                        INSERT OR REPLACE INTO cache
+                        (hash_key, src_text, dst_text, provider, model, target_lang, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            plain_key,
+                            src_text.strip(),
+                            dst_text.strip(),
+                            provider.strip(),
+                            model.strip(),
+                            target_lang.strip(),
+                            now,
+                        ),
+                    )
             self._conn.commit()
 
     def set_many(
         self,
-        items: list[tuple[str, str]],
+        items: list[tuple],
         target_lang: str,
         provider: str = "google_free",
         model: str = "default",
+        context_salt: str = "",
     ) -> None:
         if not items:
             return
         now = time.time()
         rows = []
-        for src_text, dst_text in items:
+        for entry in items:
+            if len(entry) == 3:
+                src_text, dst_text, item_salt = entry
+            else:
+                src_text, dst_text = entry
+                item_salt = context_salt
             if not src_text or not src_text.strip() or not dst_text or not dst_text.strip():
                 continue
-            h_key = self.make_hash(src_text, target_lang, provider, model)
+            h_key = self.make_hash(
+                src_text, target_lang, provider, model, context_salt=item_salt
+            )
             rows.append(
                 (
                     h_key,
@@ -143,6 +217,20 @@ class TranslationCache:
                     now,
                 )
             )
+            if item_salt:
+                plain_key = self.make_hash(src_text, target_lang, provider, model)
+                if plain_key != h_key:
+                    rows.append(
+                        (
+                            plain_key,
+                            src_text.strip(),
+                            dst_text.strip(),
+                            provider.strip(),
+                            model.strip(),
+                            target_lang.strip(),
+                            now,
+                        )
+                    )
         if not rows:
             return
         with self._lock:
@@ -160,7 +248,7 @@ class TranslationCache:
     def clear(self) -> int:
         with self._lock:
             cursor = self._conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM cache")
+            cursor.execute("SELECT COUNT(DISTINCT src_text || '|' || provider || '|' || model || '|' || target_lang) FROM cache")
             count = cursor.fetchone()[0]
             cursor.execute("DELETE FROM cache")
             self._conn.commit()
@@ -169,11 +257,11 @@ class TranslationCache:
     def get_stats(self) -> Dict[str, object]:
         with self._lock:
             cursor = self._conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM cache")
+            cursor.execute("SELECT COUNT(DISTINCT src_text || '|' || provider || '|' || model || '|' || target_lang) FROM cache")
             total_entries = cursor.fetchone()[0] or 0
 
             cursor.execute(
-                "SELECT provider, COUNT(*) FROM cache GROUP BY provider"
+                "SELECT provider, COUNT(DISTINCT src_text || '|' || model || '|' || target_lang) FROM cache GROUP BY provider"
             )
             by_provider = {row[0]: row[1] for row in cursor.fetchall()}
 

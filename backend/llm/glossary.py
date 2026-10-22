@@ -115,7 +115,15 @@ def find_missing_dst(
         dst = (item.get("dst") or "").strip()
         if not src or not dst:
             continue
-        if term_in_text(src, src_text) and _norm_cmp(dst) not in out_norm:
+        if term_in_text(src, src_text):
+            dst_norm = _norm_cmp(dst)
+            if dst_norm in out_norm:
+                continue
+            # Also accept if dst has slash-separated alternatives (e.g. "Giáo viên thực hành / Chuyên viên thực hành")
+            if "/" in dst:
+                alts = [_norm_cmp(a.strip()) for a in dst.split("/") if a.strip()]
+                if any(a and a in out_norm for a in alts):
+                    continue
             missing.append(item)
     return missing
 
@@ -319,6 +327,10 @@ def filter_glossary_for_text(
     # Sort by source term length descending so multi-word phrases appear prominently
     matched.sort(key=lambda x: len(x["src"]), reverse=True)
     return matched
+
+
+# Alias for backward/cross-module compatibility
+relevant_glossary = filter_glossary_for_text
 
 
 def parse_llm_glossary_json(raw_response: str) -> List[Dict[str, str]]:

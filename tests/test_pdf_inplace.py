@@ -320,3 +320,88 @@ def test_vector_line_prevents_merging_adjacent_table_cells(tmp_path):
     texts = [u.text for u in units]
     assert "Yes" in texts and "No" in texts
 
+
+def test_inline_html_markup_extraction_and_htmlbox_rendering(tmp_path):
+    _font_or_skip()
+
+    def build(p):
+        # Cùng một dòng có cả đậm (hebo), thường (helv) và nghiêng (heit) liền kề
+        p.insert_text((40, 80), "Mode:", fontname="hebo", fontsize=11)
+        p.insert_text((76, 80), "Choose", fontname="helv", fontsize=11)
+        p.insert_text((117, 80), "In-person", fontname="heit", fontsize=11)
+
+    path = make_pdf(tmp_path / "inline_markup.pdf", build)
+    doc = fitz.open(path)
+    units = pi.extract_units(doc)
+    assert len(units) == 1
+    u = units[0]
+    assert u.has_inline_styles is True
+    assert "<b>Mode:</b>" in u.markup_text
+    assert "<i>In-person</i>" in u.markup_text
+
+    u.dst = "<b>Hình thức:</b> Chọn <i>Trực tiếp</i>"
+    stats = pi.render_units(doc, units)
+    assert stats["rendered"] == 1
+    rendered_txt = page_text(doc[0])
+    assert "Hình thức:" in rendered_txt and "Trực tiếp" in rendered_txt
+    assert "<b>" not in rendered_txt and "<i>" not in rendered_txt
+
+
+def test_unicode_superscripts_and_trademark_preserved(tmp_path):
+    # 1) _nfkc_preserve_superscripts giữ nguyên ¹²³⁴⁵⁶⁷⁸⁹⁰ và ™
+    raw = " Pyramid Model™ and notes¹²³⁴⁵⁶⁷⁸⁹⁰ "
+    cleaned = pi.clean_text(raw)
+    assert "™" in cleaned and "¹²³⁴⁵⁶⁷⁸⁹⁰" in cleaned
+
+    # 2) extract_units chuyển span chữ nhỏ (superscript) của số và TM thành ¹²³ / ™
+    def build(p):
+        p.insert_text((40, 80), "Pyramid", fontname="helv", fontsize=12)
+        p.insert_text((88, 76), "TM", fontname="helv", fontsize=7)
+        p.insert_text((105, 80), "framework", fontname="helv", fontsize=12)
+        p.insert_text((163, 76), "12", fontname="helv", fontsize=7)
+
+    path = make_pdf(tmp_path / "sup_tm.pdf", build)
+    units = pi.extract_units(fitz.open(path))
+    assert len(units) == 1
+    assert "Pyramid™" in units[0].text
+    assert "¹²" in units[0].text
+
+
+def test_off_page_bleed_filtered_and_bullet_not_merged_into_numbered_heading(tmp_path):
+    def build(p):
+        # Dòng sát mép trên (y1 <= 18.0) là bleed ngoài lề -> phải bị bỏ qua
+        p.insert_text((40, 12), "Off-page bleed artifact", fontname="helv", fontsize=9)
+        # Mục bullet kết thúc câu
+        p.insert_text((40, 80), "\xb7", fontname="symb", fontsize=11)
+        p.insert_text((55, 80), "Complete the observation form.", fontname="helv", fontsize=11)
+        # Ngay bên dưới (sát y) là tiêu đề đánh số in đậm -> không được gộp vào bullet trên
+        p.insert_text((55, 93), "2. What should I do next?", fontname="hebo", fontsize=11)
+
+    path = make_pdf(tmp_path / "bleed_and_numbered.pdf", build)
+    units = pi.extract_units(fitz.open(path))
+    texts = [u.text for u in units]
+    assert all("bleed" not in t.lower() for t in texts)
+    assert "Complete the observation form." in texts
+    assert any("What should I do next?" in t for t in texts)
+    assert len(units) == 2
+
+
+def test_per_member_url_restoration_with_same_prefix_different_urls(tmp_path, make_client):
+    _font_or_skip()
+
+    def build(p):
+        p.insert_text((40, 80), "Checklist: https://a.org/1.pdf", fontname="helv", fontsize=11)
+        p.insert_text((40, 140), "Checklist: https://b.org/2.pdf", fontname="helv", fontsize=11)
+
+    src = make_pdf(tmp_path / "two_urls.pdf", build)
+    client = make_client()
+    res = run(translate_pdf_file(src, str(tmp_path / "out_urls"), "urls", client))
+    # Cả hai dòng đều có cùng chuỗi gửi LLM ("Checklist: ⟦1/⟧") nên chỉ dịch 1 lần,
+    # nhưng khi khôi phục URL phải trả đúng URL riêng của từng member!
+    assert res["total_items"] == 1
+    out_doc = fitz.open(res["mono_pdf"])
+    txt = page_text(out_doc[0])
+    assert "https://a.org/1.pdf" in txt
+    assert "https://b.org/2.pdf" in txt
+
+

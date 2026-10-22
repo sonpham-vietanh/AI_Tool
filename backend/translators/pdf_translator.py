@@ -10,7 +10,15 @@ from docx import Document
 from docx.shared import Pt, RGBColor
 
 from .pdf_font_helper import get_vietnamese_font_path
-from .pdf_inplace import Unit, extract_units, is_only_urls, protect_urls, render_units, restore_urls
+from .pdf_inplace import (
+    Unit,
+    _strip_markup_tags,
+    extract_units,
+    is_only_urls,
+    protect_urls,
+    render_units,
+    restore_urls,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -87,8 +95,8 @@ def _export_translated_docx(
         h2.style.font.name = "Arial"
 
         for item in blocks:
-            src_text = item.get("src", "").strip()
-            dst_text = item.get("dst", "").strip()
+            src_text = _strip_markup_tags(item.get("src", "")).strip()
+            dst_text = _strip_markup_tags(item.get("dst", "")).strip()
             if not dst_text:
                 continue
 
@@ -129,7 +137,7 @@ def _parse_page_range(page_range_str: str, total: int) -> Optional[set]:
 
 
 def _role_hint(u: Unit, page_h: float, body_size: float, repeats: int) -> str:
-    """Máy suy ra VAI TRÒ của đoạn trong trang (từ cỡ chữ, độ đậm, khung chứa, vị trí) để AI tự hiểu ngữ cảnh."""
+    """Máy suy ra VAI TRÒ và RÀNG BUỘC ĐỘ DÀI của đoạn trong trang (từ cỡ chữ, độ đậm, khung chứa, vị trí) để AI tự hiểu ngữ cảnh."""
     parts: List[str] = [f"trang {u.page + 1}"]
     top, bottom = u.rect.y0 < page_h * 0.08, u.rect.y1 > page_h * 0.92
     if u.vertical:
@@ -142,23 +150,35 @@ def _role_hint(u: Unit, page_h: float, body_size: float, repeats: int) -> str:
         parts.append("đầu/chân trang lặp lại ở nhiều trang (giữ nhất quán)")
     elif bottom and body_size and u.size < body_size * 0.9:
         parts.append("chú thích/ghi chú cuối trang")
-    if u.container is not None and len(u.text) < 45:
-        parts.append("nhãn hoặc ô nằm trong bảng/khung")
+    if u.container is not None and len(u.text) < 60:
+        max_chars = max(10, int(len(u.text) * 1.2))
+        parts.append(f"nhãn hoặc ô nằm trong bảng/khung; ô bảng/biểu mẫu hẹp — dịch cô đọng tối đa ~{max_chars} ký tự")
+    elif (u.vertical or getattr(u, "max_lines", 1) == 1) and len(u.text) < 65:
+        max_chars = max(12, int(len(u.text) * 1.25))
+        parts.append(f"khung 1 dòng — dịch gọn tối đa ~{max_chars} ký tự")
     if u.starts_bullet:
         parts.append("một mục trong danh sách gạch đầu dòng/ô tích")
+    if getattr(u, "has_inline_styles", False):
+        parts.append("giữ nguyên thẻ định dạng <b>, <i>, <sup> quanh đúng cụm từ tương ứng")
     if len(u.text) < 22 and len(parts) == 1:
         parts.append("nhãn ngắn")
     return "; ".join(parts)
 
 
 def _make_batches(units: List[Unit], max_items: int, max_chars: int) -> List[List[Unit]]:
-    """Gom các đoạn liền kề (theo thứ tự trang) thành batch; ngắt batch khi quá số đoạn/ký tự."""
+    """Gom các đoạn liền kề (theo thứ tự trang/mục) thành batch; ưu tiên ngắt ở ranh giới trang/đề mục lớn khi batch đã đủ đầy."""
     batches: List[List[Unit]] = []
     cur: List[Unit] = []
     chars = 0
     for u in units:
         n = len(u.text)
-        if cur and (len(cur) >= max_items or chars + n > max_chars):
+        is_new_section = bool(
+            cur
+            and u.page != cur[-1].page
+            and (u.size >= 16.0 or (u.bold and u.size >= 13.5 and u.rect.y0 < 160.0))
+            and (len(cur) >= max(6, max_items // 2) or chars >= max_chars * 0.6)
+        )
+        if cur and (len(cur) >= max_items or chars + n > max_chars or is_new_section):
             batches.append(cur)
             cur, chars = [], 0
         cur.append(u)
@@ -217,7 +237,8 @@ async def translate_pdf_file(
             if is_only_urls(u.text):
                 u.skip = True
                 continue
-            protected_text, mapping = protect_urls(u.text)
+            src_payload = u.markup_text if (getattr(u, "has_inline_styles", False) and u.markup_text) else u.text
+            protected_text, mapping = protect_urls(src_payload)
             u.protected = mapping
             u._send = protected_text  # type: ignore[attr-defined]
             work.append(u)
@@ -261,7 +282,7 @@ async def translate_pdf_file(
             texts = [u._send for u in batch]  # type: ignore[attr-defined]
             context = ""
             if idx > 0:
-                context = "\n".join(u.text for u in batches[idx - 1][-2:])
+                context = "\n".join(f"[Trang {u.page + 1}] {u.text}" for u in batches[idx - 1][-4:])
             async with sem:
                 if cancel_event and cancel_event.is_set():
                     cancelled = True
@@ -280,9 +301,8 @@ async def translate_pdf_file(
                 ]
             for u, t in zip(batch, translations):
                 dst = (t or "").strip() or u._send  # type: ignore[attr-defined]
-                final = restore_urls(dst, u.protected)
                 for member in groups[u._send]:  # type: ignore[attr-defined]
-                    member.dst = final
+                    member.dst = restore_urls(dst, member.protected)
             async with lock:
                 translated_items += len(batch)
                 await notify(translated_items, total_items, batch[-1].text, batch[-1].dst)
@@ -291,8 +311,8 @@ async def translate_pdf_file(
         if cancelled or (cancel_event and cancel_event.is_set()):
             raise asyncio.CancelledError("Tác vụ dịch PDF đã bị hủy bởi người dùng.")
 
-        # 3) Xóa chữ gốc (không tô nền) và ghi bản dịch vào đúng khung cũ
-        stats = await asyncio.to_thread(render_units, doc, work, fallback_font)
+        # 3) Xóa chữ gốc (không tô nền) và ghi bản dịch vào đúng khung cũ (truyền toàn bộ units để tránh đè đoạn skip)
+        stats = await asyncio.to_thread(render_units, doc, units, fallback_font)
         logger.info("PDF in-place: %s", stats)
 
         doc.save(mono_pdf_path, garbage=4, deflate=True)

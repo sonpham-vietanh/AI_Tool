@@ -159,3 +159,73 @@ def test_resolve_lang_and_genre():
 def test_editor_prompt_glossary():
     p = build_editor_system_prompt(glossary=[{"src": "A", "dst": "b"}], is_batch=True)
     assert "`A` → `b`" in p and "[[#0]]" in p
+
+
+def test_cache_context_salt_isolation_and_fallback(cache):
+    from backend.llm.cache import TranslationCache as C
+
+    assert C.make_hash("hello", "vi", "openai", "m", context_salt="v3|a->b") != C.make_hash(
+        "hello", "vi", "openai", "m", context_salt="v3|a->c"
+    )
+    cache.set("Practice-Based Coaching", "Huấn luyện dựa trên thực hành (PBC)", "vi", "openai", "m1", context_salt="v3|pbc->1")
+    assert (
+        cache.get("Practice-Based Coaching", "vi", "openai", "m1", context_salt="v3|pbc->1")
+        == "Huấn luyện dựa trên thực hành (PBC)"
+    )
+    cache.set("Practice-Based Coaching", "Huấn luyện thực hành PBC", "vi", "openai", "m1", context_salt="v3|pbc->2")
+    assert (
+        cache.get("Practice-Based Coaching", "vi", "openai", "m1", context_salt="v3|pbc->2")
+        == "Huấn luyện thực hành PBC"
+    )
+    assert (
+        cache.get("Practice-Based Coaching", "vi", "openai", "m1", context_salt="v3|pbc->1")
+        == "Huấn luyện dựa trên thực hành (PBC)"
+    )
+
+
+def test_find_missing_dst_supports_slash_alternatives():
+    from backend.llm.glossary import find_missing_dst
+
+    gl = [
+        {"src": "Practitioner", "dst": "Giáo viên thực hành / Chuyên viên thực hành"},
+        {"src": "Pyramid Model", "dst": "Mô hình Kim tự tháp"},
+    ]
+    assert (
+        find_missing_dst(
+            "The practitioner applies the Pyramid Model daily.",
+            "Chuyên viên thực hành áp dụng Mô hình Kim tự tháp hàng ngày.",
+            gl,
+        )
+        == []
+    )
+    missing = find_missing_dst(
+        "The practitioner applies the Pyramid Model daily.",
+        "Giáo viên thực hành áp dụng mô hình này hàng ngày.",
+        gl,
+    )
+    assert len(missing) == 1 and missing[0]["src"] == "Pyramid Model"
+
+
+def test_extract_book_spread_sample_prioritizes_key_terms_and_glossary(tmp_path):
+    import fitz
+    from backend.translators.glossary_extractor import extract_book_spread_sample
+
+    pdf_path = tmp_path / "sample_book.pdf"
+    doc = fitz.open()
+    for i in range(20):
+        page = doc.new_page(width=500, height=700)
+        if i == 11:
+            body = "KEY TERMS\nPractice-Based Coaching (PBC): A cyclical process for supporting practitioners.\n" + ("Detail line about coaching. " * 60)
+        elif i == 16:
+            body = "GLOSSARY\nTeaching Pyramid Observation Tool (TPOT): An assessment instrument.\n" + ("Glossary explanation text. " * 60)
+        else:
+            body = f"Chapter {i + 1} general filler content. " * 90
+        page.insert_textbox(fitz.Rect(30, 30, 470, 670), body, fontsize=10)
+    doc.save(str(pdf_path))
+    doc.close()
+
+    sample = extract_book_spread_sample(str(pdf_path), max_chars=9000)
+    assert "KEY TERMS" in sample
+    assert "Practice-Based Coaching (PBC)" in sample
+    assert "GLOSSARY" in sample
+    assert "Teaching Pyramid Observation Tool (TPOT)" in sample
