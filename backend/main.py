@@ -74,6 +74,9 @@ def _load_saved_settings() -> LLMConfig:
                         or (os.environ.get("BTH_MODEL") or "").strip()
                         or "cc/claude-sonnet-5-5"
                     )
+            total_saved_keys = len(raw.get("api_keys") or []) + len(raw.get("gemini_api_keys") or [])
+            if total_saved_keys <= 1 and raw.get("provider") not in ("google_free",) and int(raw.get("concurrency") or 4) > 4:
+                raw["concurrency"] = 4
             return LLMConfig(**raw)
         except Exception as exc:
             logger.warning("Could not load settings.json: %s", exc)

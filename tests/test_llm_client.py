@@ -347,3 +347,38 @@ def test_should_invoke_editor_catches_calques_substantive_prose_and_ignores_test
     assert _should_invoke_editor(long_src, "VI(Bản dịch giả lập cho câu dài)") is False
     assert _should_invoke_editor("What if the teacher cancels?", "VI(Bản dịch câu hỏi?)") is False
 
+
+def test_gateway_503_cooldown_parsing_and_sibling_cc_model_fallback():
+    import httpx
+
+    cl = TranslationLLMClient(
+        LLMConfig(
+            provider="openai",
+            base_url="https://ryg2i56.abc-tunnel.us/v1",
+            api_keys=["sk-test-1"],
+            model="cc/claude-opus-5-5",
+        )
+    )
+    req = httpx.Request("POST", "https://ryg2i56.abc-tunnel.us/v1/chat/completions")
+    resp_503 = httpx.Response(
+        503,
+        request=req,
+        text='{"error":{"message":"[claude/claude-opus-5-5] [401]: OAuth access token has expired. (reset after 1m 8s)"}}',
+    )
+    assert cl._parse_retry_after_seconds(resp_503) == 68.0
+
+    called_models = []
+
+    async def fake_call_openai(sys_p, user_p, api_key, model_override=None, base_url_override=None):
+        called_models.append(model_override)
+        if model_override == "cc/claude-opus-5-5":
+            raise httpx.HTTPStatusError("503 Service Unavailable", request=req, response=resp_503)
+        return "Bản dịch thành công từ model dự phòng"
+
+    cl._call_openai_compatible = fake_call_openai
+    out = run(cl._call_llm_with_rotation("sys", "user"))
+    assert out == "Bản dịch thành công từ model dự phòng"
+    assert called_models[0] == "cc/claude-opus-5-5"
+    assert called_models[1] == "cc/claude-sonnet-5-5"
+
+

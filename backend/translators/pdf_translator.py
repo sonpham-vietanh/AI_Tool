@@ -470,7 +470,15 @@ async def translate_pdf_file(
 
         # 2) Dịch song song theo batch (có ngữ cảnh đoạn liền trước, chủ đề trang, glossary và BOOK BRIEF qua llm_client)
         batches = _make_batches(reps, batch_items, batch_chars)
-        sem = asyncio.Semaphore(concurrency)
+        total_keys = 0
+        if hasattr(llm_client, "config"):
+            total_keys = len(getattr(llm_client.config, "api_keys", []) or []) + len(
+                getattr(llm_client.config, "gemini_api_keys", []) or []
+            )
+        effective_concurrency = max(1, concurrency)
+        if total_keys == 1 and getattr(getattr(llm_client, "config", None), "provider", "") not in ("google_free",):
+            effective_concurrency = min(effective_concurrency, 3)
+        sem = asyncio.Semaphore(effective_concurrency)
         lock = asyncio.Lock()
         cancelled = False
 
@@ -479,6 +487,8 @@ async def translate_pdf_file(
             if cancel_event and cancel_event.is_set():
                 cancelled = True
                 return
+            if 0 < idx < effective_concurrency and total_keys == 1:
+                await asyncio.sleep(idx * 0.35)
             texts = [u._send for u in batch]  # type: ignore[attr-defined]
             ctx_lines: List[str] = []
             seen_pages: set[int] = set()

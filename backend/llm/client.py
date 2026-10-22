@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import threading
+import time
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import quote
 
@@ -400,6 +401,10 @@ class TranslationLLMClient:
         self.book_brief: str = ""
         self._consecutive_batch_failures = 0
         self.max_consecutive_failures = 3
+        self._last_batch_failure_ts: float = 0.0
+        self._model_cooldown_until: Dict[str, float] = {}
+        self._gateway_cooldown_until: float = 0.0
+        self._cooldown_lock = asyncio.Lock()
         # Term memory (learned proper nouns / terms); `learned_terms` is a list of
         # {"src","dst","note"} dicts in learning order, safe to read/serialize at any time.
         self.learned_terms: List[Dict[str, str]] = []
@@ -1052,6 +1057,27 @@ class TranslationLLMClient:
         async with httpx.AsyncClient(timeout=240.0) as client:
             resp = await client.post(url, headers=headers, json=payload)
             resp.raise_for_status()
+            raw_body = (resp.text or "").strip()
+            if raw_body.startswith("data:"):
+                sse_parts: List[str] = []
+                for line in raw_body.splitlines():
+                    line_s = line.strip()
+                    if not line_s.startswith("data:"):
+                        continue
+                    data_str = line_s[5:].strip()
+                    if not data_str or data_str == "[DONE]":
+                        continue
+                    try:
+                        chunk_obj = json.loads(data_str)
+                        for ch in chunk_obj.get("choices") or []:
+                            delta = ch.get("delta") or ch.get("message") or {}
+                            if delta.get("content"):
+                                sse_parts.append(delta["content"])
+                    except Exception:
+                        continue
+                sse_text = "".join(sse_parts).strip()
+                if sse_text:
+                    return sse_text
             data = resp.json()
 
         choices = data.get("choices") or []
@@ -1064,13 +1090,17 @@ class TranslationLLMClient:
         return content
 
     async def _call_claude(
-        self, system_prompt: str, user_prompt: str, api_key: str
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        api_key: str,
+        model_override: Optional[str] = None,
     ) -> str:
         base = (self.config.base_url or DEFAULT_BASE_URLS["claude"]).rstrip("/")
         # If using an OpenAI-compatible tunnel/gateway with Claude selected, route to /chat/completions
         if "anthropic.com" not in base.lower():
             return await self._call_openai_compatible(
-                system_prompt, user_prompt, api_key
+                system_prompt, user_prompt, api_key, model_override=model_override
             )
         url = f"{base}/messages"
 
@@ -1080,7 +1110,7 @@ class TranslationLLMClient:
             "content-type": "application/json",
         }
         payload = {
-            "model": self.config.model or "claude-3-5-sonnet-latest",
+            "model": model_override or self.config.model or "claude-3-5-sonnet-latest",
             "max_tokens": 8192,
             "temperature": self.config.temperature,
             "system": system_prompt,
@@ -1103,6 +1133,69 @@ class TranslationLLMClient:
             raise ValueError("Claude API returned empty content.")
         return result
 
+    _RESET_AFTER_RE = re.compile(
+        r"(?:reset\s+after|retry\s+in|try\s+again\s+in)\s+(?:(\d+)\s*m(?:in(?:ute)?s?)?\s*)?(?:(\d+(?:\.\d+)?)\s*s(?:ec(?:ond)?s?)?)?",
+        re.IGNORECASE,
+    )
+    _CC_FALLBACK_MODELS: List[str] = [
+        "cc/claude-sonnet-5-5",
+        "cc/claude-sonnet-5",
+        "cc/claude-fable-5-1",
+        "cc/claude-haiku-4-5-20251001",
+        "cc/claude-opus-5-5",
+    ]
+
+    @classmethod
+    def _parse_retry_after_seconds(cls, resp: Optional[httpx.Response]) -> Optional[float]:
+        if resp is None:
+            return None
+        ra = resp.headers.get("retry-after") or resp.headers.get("Retry-After")
+        if ra:
+            try:
+                return max(1.0, float(ra.strip()))
+            except ValueError:
+                pass
+        try:
+            text = resp.text or ""
+        except Exception:
+            text = ""
+        m = cls._RESET_AFTER_RE.search(text)
+        if m and (m.group(1) or m.group(2)):
+            mins = float(m.group(1) or 0.0)
+            secs = float(m.group(2) or 0.0)
+            total = mins * 60.0 + secs
+            if total > 0:
+                return total
+        return None
+
+    def _select_gateway_model(self, desired_model: str, attempt: int) -> str:
+        """
+        Selects the best gateway model for this attempt. If `desired_model` is a `cc/*` gateway
+        model that is currently in cooldown (from a 503/429 error) or `attempt > 0`, automatically
+        rotates to a healthy sibling `cc/*` model so a single model's cooldown/token refresh
+        does not stall or fail the translation job.
+        """
+        if not desired_model or not desired_model.lower().startswith("cc/"):
+            return desired_model
+        now = time.monotonic()
+        candidates = [desired_model] + [
+            m for m in self._CC_FALLBACK_MODELS if m.lower() != desired_model.lower()
+        ]
+        healthy = [
+            m for m in candidates if self._model_cooldown_until.get(m, 0.0) <= now
+        ]
+        if healthy:
+            return healthy[0]
+        return candidates[attempt % len(candidates)]
+
+    async def _wait_for_gateway_cooldown(self) -> None:
+        while True:
+            now = time.monotonic()
+            wait_s = self._gateway_cooldown_until - now
+            if wait_s <= 0:
+                return
+            await asyncio.sleep(min(wait_s, 5.0))
+
     async def _call_llm_with_rotation(
         self,
         system_prompt: str,
@@ -1110,8 +1203,8 @@ class TranslationLLMClient:
         model_override: Optional[str] = None,
     ) -> str:
         """
-        Executes an LLM request using the Multi-Key Rotation Pool and Exponential Backoff
-        when encountering HTTP 429 (Rate Limit) or 5xx transient server errors.
+        Executes an LLM request using the Multi-Key Rotation Pool, Model Fallback Rotation,
+        and Smart Cooldown Backoff when encountering HTTP 429 (Rate Limit) or 5xx server errors.
         Supports 'hybrid' mode which load-balances across both Gateway (Claude/OpenAI) and Gemini Ultra pools,
         as well as per-Agent model_override routing.
         """
@@ -1122,10 +1215,12 @@ class TranslationLLMClient:
         total_keys = max(
             1, len(self.config.api_keys) + len(self.config.gemini_api_keys)
         )
-        max_attempts = max(3, min(total_keys * 2, 8))
+        max_attempts = max(6, min(total_keys * 3, 10))
         last_error: Optional[Exception] = None
 
         for attempt in range(max_attempts):
+            await self._wait_for_gateway_cooldown()
+
             active_sub_provider = provider
             if provider == "hybrid":
                 async with self._key_lock:
@@ -1135,6 +1230,13 @@ class TranslationLLMClient:
 
             is_gemini_call = active_sub_provider == "gemini"
             api_key = await self._get_next_api_key(for_gemini=is_gemini_call)
+
+            base_gw_model = (
+                model_override
+                if (model_override and not model_override.lower().startswith("hybrid"))
+                else (self.config.model or "cc/claude-sonnet-5-5")
+            )
+            chosen_gw_model = self._select_gateway_model(base_gw_model, attempt)
 
             try:
                 if is_gemini_call:
@@ -1155,37 +1257,63 @@ class TranslationLLMClient:
                     "openrouter",
                     "ollama",
                 ):
-                    gw_override = (
-                        model_override
-                        if (model_override and not model_override.lower().startswith("hybrid"))
-                        else None
-                    )
                     return await self._call_openai_compatible(
                         system_prompt,
                         user_prompt,
                         api_key,
-                        model_override=gw_override,
+                        model_override=chosen_gw_model,
                     )
                 elif active_sub_provider == "claude":
-                    return await self._call_claude(system_prompt, user_prompt, api_key)
+                    return await self._call_claude(
+                        system_prompt,
+                        user_prompt,
+                        api_key,
+                        model_override=chosen_gw_model,
+                    )
                 else:
                     return await self._call_openai_compatible(
                         system_prompt,
                         user_prompt,
                         api_key,
-                        model_override=model_override,
+                        model_override=chosen_gw_model,
                     )
             except httpx.HTTPStatusError as http_err:
                 last_error = http_err
                 status = http_err.response.status_code
                 if status in (429, 500, 502, 503, 504):
-                    backoff = min(12.0, 1.0 * (2 ** (attempt // max(1, total_keys))))
+                    reset_sec = self._parse_retry_after_seconds(http_err.response)
+                    now = time.monotonic()
+                    if not is_gemini_call and chosen_gw_model:
+                        self._model_cooldown_until[chosen_gw_model] = now + min(
+                            max(reset_sec or 25.0, 10.0), 90.0
+                        )
+                    # Check if we still have a healthy sibling cc/* model to try immediately
+                    has_healthy_sibling = (
+                        not is_gemini_call
+                        and chosen_gw_model.lower().startswith("cc/")
+                        and any(
+                            self._model_cooldown_until.get(m, 0.0) <= now
+                            for m in self._CC_FALLBACK_MODELS
+                        )
+                    )
+                    if has_healthy_sibling:
+                        backoff = min(3.0, 1.0 + 0.5 * attempt)
+                    elif reset_sec is not None:
+                        backoff = min(max(reset_sec + 1.0, 4.0), 35.0)
+                        async with self._cooldown_lock:
+                            target_until = time.monotonic() + backoff
+                            if target_until > self._gateway_cooldown_until:
+                                self._gateway_cooldown_until = target_until
+                    else:
+                        backoff = min(20.0, 2.0 * (1.8 ** (attempt // max(1, total_keys))))
                     logger.warning(
-                        "LLM HTTP %s on provider=%s (attempt %d/%d). Rotating key & backing off %.1fs...",
+                        "LLM HTTP %s on provider=%s model=%s (attempt %d/%d, reset_after=%s). Rotating & backing off %.1fs...",
                         status,
                         active_sub_provider,
+                        chosen_gw_model if not is_gemini_call else "gemini",
                         attempt + 1,
                         max_attempts,
+                        f"{reset_sec:.0f}s" if reset_sec else "n/a",
                         backoff,
                     )
                     await asyncio.sleep(backoff)
@@ -1201,7 +1329,7 @@ class TranslationLLMClient:
                     break
             except Exception as exc:
                 last_error = exc
-                backoff = min(6.0, 0.8 * (2**attempt))
+                backoff = min(8.0, 1.0 * (1.8**attempt))
                 logger.warning(
                     "LLM error on provider=%s (attempt %d/%d): %s",
                     active_sub_provider,
@@ -1623,6 +1751,7 @@ class TranslationLLMClient:
         call_error: Optional[Exception] = None
 
         async with self.semaphore:
+            batch_started_ts = time.monotonic()
             try:
                 if provider == "google_free":
                     raw_translated = await self._translate_google_free_raw(
@@ -1684,7 +1813,11 @@ class TranslationLLMClient:
 
         if call_error is not None:
             # Lỗi API (429/503/hết quota/sai key...): KHÔNG chia đôi (chia chỉ làm bão request).
-            self._consecutive_batch_failures += 1
+            # Nếu nhiều batch đang bay đồng thời (concurrent in-flight) cùng gặp 1 đợt gián đoạn của Gateway,
+            # chỉ tính 1 lần cho đợt đó (batch_started_ts > _last_batch_failure_ts) để không ngắt mạch oan.
+            if self._consecutive_batch_failures == 0 or batch_started_ts >= self._last_batch_failure_ts:
+                self._consecutive_batch_failures += 1
+                self._last_batch_failure_ts = time.monotonic()
             if self._consecutive_batch_failures >= self.max_consecutive_failures:
                 raise RuntimeError(
                     f"LLM lỗi liên tiếp {self._consecutive_batch_failures} batch, dừng để tránh dịch hỏng/tốn tiền. "
