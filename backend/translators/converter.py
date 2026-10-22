@@ -142,17 +142,17 @@ def extract_book_sample_text(input_path: str, max_chars: int = 12000) -> str:
         return ""
 
 
-def extract_book_spread_sample(input_path: str, total_chars: int = 15000) -> str:
+def extract_book_spread_sample(input_path: str, total_chars: int = 18000) -> str:
     """
-    Lấy mẫu rải đều từ đầu (bỏ qua trang bìa/mục lục), giữa và cuối sách
-    để Agent 2 hiểu đúng thể loại, nhân vật và thuật ngữ cả cuốn thay vì chỉ vài trang đầu.
+    Lấy mẫu từ trang bìa/mục lục/mở đầu (0%), phần đầu thân sách (15%), giữa sách (45%) và cuối sách/phụ lục (80%)
+    để Agent 2 nắm trọn nhan đề sách, mục lục, thể loại, nhân vật và thuật ngữ xuyên suốt cả cuốn.
     """
     full = extract_book_sample_text(input_path, 600_000)
     if len(full) <= total_chars:
         return full
-    part = total_chars // 3
+    part = total_chars // 4
     n = len(full)
-    starts = [int(n * 0.03), int(n * 0.40), int(n * 0.75)]
+    starts = [0, int(n * 0.15), int(n * 0.45), int(n * 0.80)]
     starts = [min(st, n - part) for st in starts]
     return (chr(10) * 2 + "[...]" + chr(10) * 2).join(full[st : st + part] for st in starts)
 

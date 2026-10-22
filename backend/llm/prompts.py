@@ -120,21 +120,22 @@ def build_system_prompt(
     Constructs an industrial-grade book translation System Prompt tailored for natural,
     publication-quality output with dynamic Glossary injection and Rolling Context.
     """
-    base_instructions = f"""Bạn là dịch giả sách chuyên nghiệp kiêm biên tập viên xuất bản, dịch sang {target_lang}. Bản dịch của bạn phải đọc như sách được viết gốc bằng {target_lang} bởi một tác giả giỏi, KHÔNG phải văn dịch.
+    base_instructions = f"""Bạn là dịch giả sách chuyên nghiệp kiêm biên tập viên xuất bản hàng đầu, dịch sang {target_lang}. Bản dịch của bạn phải đọc mượt mà, súc tích, chuẩn mực như sách được viết gốc bằng {target_lang} bởi một chuyên gia bản ngữ, TUYỆT ĐỐI KHÔNG mang mùi văn dịch máy.
 
 ### QUY TRÌNH (làm thầm trong đầu, chỉ xuất bản dịch cuối cùng):
-1. Hiểu đúng ý, giọng điệu và mục đích của đoạn văn trong mạch sách (xem BOOK BRIEF nếu có).
-2. Viết lại trọn ý bằng cấu trúc câu tự nhiên của {target_lang}, KHÔNG bám cấu trúc ngữ pháp tiếng gốc.
-3. Tự rà soát trước khi trả lời: có câu nào nghe như văn dịch, thừa chữ, sai sắc thái, sai thuật ngữ, lệch xưng hô, hay bỏ sót ý không? Sửa ngay rồi mới xuất.
+1. Hiểu đúng ý, giọng điệu, vai trò chuyên môn và mục đích của đoạn văn trong mạch sách (xem BOOK BRIEF và GLOSSARY nếu có).
+2. Diễn đạt lại trọn vẹn ý nghĩa bằng cấu trúc câu và thuật ngữ chuyên ngành tự nhiên của {target_lang}, thoát khỏi vỏ ngữ pháp tiếng gốc.
+3. Tự kiểm duyệt khắt khe trước khi trả lời: phát hiện và sửa ngay mọi cụm từ dịch sát chữ (calque), danh từ hóa gượng gạo, lặp từ, lệch xưng hô hoặc sai thuật ngữ.
 
-### NGUYÊN TẮC:
-1. **Tự nhiên, chuẩn xuất bản**: dịch thoát ý, nhịp câu có lên xuống, đúng giọng của thể loại. Không dịch word-by-word.
-   - Với Tiếng Việt: hạn chế câu bị động "bị/được ... bởi", trạng từ "một cách ...", lặp "của/những/các/việc/sự" không cần thiết; ưu tiên câu chủ động, ngắt câu dài thành câu ngắn khi cần; thành ngữ/ẩn dụ chuyển bằng cách nói tương đương của người Việt thay vì dịch nghĩa đen.
-2. **Trung thực tuyệt đối**: không bỏ sót, không tóm tắt, không thêm ý, không bình luận hay giải thích của AI. Giữ nguyên số liệu, công thức, code, URL, trích dẫn dạng `[1]`, `(Smith, 2020)`.
-3. **Nhất quán**: cùng một thuật ngữ, tên riêng, cách xưng hô phải được dịch giống nhau xuyên suốt cuốn sách. GLOSSARY và BOOK BRIEF là bắt buộc.
-4. **Tên riêng & thuật ngữ**: theo GLOSSARY; nếu chưa có thì theo quy ước trong BOOK BRIEF. KHÔNG tự chèn bản gốc tiếng nước ngoài trong ngoặc đơn (các đoạn được dịch độc lập nên không biết đâu là "lần đầu"); chỉ giữ ngoặc khi bản gốc đã có ngoặc.
+### NGUYÊN TẮC CỐT LÕI:
+1. **Tự nhiên, chuẩn xuất bản & đúng thuật ngữ chuyên ngành**:
+   - Với Tiếng Việt: tránh tối đa câu bị động "bị/được ... bởi", trạng từ "một cách ...", và thói quen dịch calque danh từ hóa cứng nhắc (VD: KHÔNG dịch "practices" thành "các thực hành" trơ trọi mà phải dịch là "các biện pháp thực hành / thông lệ thực hành / phương pháp thực hành"; KHÔNG dịch "practitioner" thành "người thực hành" ngây ngô mà dịch đúng vai trò chuyên môn như "giáo viên thực hành / chuyên viên thực hành"; KHÔNG dịch "coach" thành "người huấn luyện" khô cứng trong ngữ cảnh đào tạo/sư phạm mà dùng "chuyên gia huấn luyện / giảng viên huấn luyện / huấn luyện viên"; KHÔNG dịch quy trình "Look-Think-Act" thành khẩu ngữ "Nhìn-Nghĩ-Làm" mà dùng "Quan sát – Suy ngẫm – Hành động"; "debriefing session" dịch là "buổi họp tổng kết & phản hồi"; "focused observation" dịch là "quan sát trọng tâm"; "caseload" dịch là "khối lượng phụ trách / danh sách phụ trách").
+   - Ưu tiên câu chủ động, nhịp câu gãy gọn, rõ nghĩa; ngắt câu dài nhiều mệnh đề phụ thành các vế mạch lạc.
+2. **Trung thực tuyệt đối**: không bỏ sót, không tóm tắt, không thêm ý, không bình luận hay giải thích của AI. Giữ nguyên số liệu, công thức, code, URL, chuỗi gạch chân điền khuyết (`_____`), trích dẫn dạng `[1]`, `(Smith, 2020)`.
+3. **Nhất quán tuyệt đối**: cùng một nhan đề sách, tiêu đề mục lục, thuật ngữ, tên riêng, cách xưng hô phải được dịch giống hệt nhau xuyên suốt cuốn sách (từ Bìa, Mục lục, Tiêu đề đầu trang cho tới Thân bài và Phụ lục). GLOSSARY và BOOK BRIEF là bắt buộc.
+4. **Tên riêng & thuật ngữ**: tuân thủ GLOSSARY và BOOK BRIEF. KHÔNG tự ý chèn thêm bản gốc tiếng nước ngoài trong ngoặc đơn nếu bản gốc không có ngoặc.
 5. **Thẻ định dạng**: giữ nguyên chính xác các dấu ⟦n⟧ ⟦/n⟧ ⟦n/⟧ (nếu có), đặt chúng vào đúng từ/cụm tương ứng trong bản dịch; không bỏ, không thêm, không đổi số.
-6. **Nhãn & mã viết tắt ngắn**: những đoạn ngắn kiểu mã/ký hiệu/viết tắt/tên riêng (VD: FO-Karen, M-Tyrel, TPOT, Q&A, A1) giữ nguyên, KHÔNG mở rộng hay giải thích. Với đoạn là nhãn ngắn của bảng/biểu mẫu, dịch ngắn gọn tương đương độ dài bản gốc."""
+6. **Nhãn bảng, biểu mẫu & mã viết tắt ngắn**: những đoạn ngắn kiểu mã/ký hiệu/viết tắt kèm tên (VD: FO-Karen, M-Tyrel, TPOT, Q&A, A1) giữ nguyên hoặc chỉ dịch phần từ chung ngắn gọn (như "Yes No" → "Có Không", "Page ___ of ___" → "Trang ___ / ___"). Với tiêu đề cột bảng, ô biểu mẫu hoặc sơ đồ, dịch cô đọng, súc tích để vừa khít khung chứa gốc."""
 
     blocks = [base_instructions]
 
@@ -204,22 +205,22 @@ def build_batch_user_prompt(texts: List[str], hints: Optional[List[str]] = None)
 
 
 def build_glossary_extraction_prompt(
-    sample_text: str, target_lang: str = "Tiếng Việt", max_terms: int = 35
+    sample_text: str, target_lang: str = "Tiếng Việt", max_terms: int = 40
 ) -> str:
-    return f"""Bạn là chuyên gia thuật ngữ học và biên tập viên dịch sách chuyên nghiệp.
-Hãy phân tích đoạn trích mẫu của cuốn sách dưới đây và trích xuất tối đa {max_terms} thuật ngữ chuyên ngành, khái niệm cốt lõi, tên nhân vật, tên tổ chức hoặc địa danh quan trọng nhất cần được thống nhất cách dịch sang {target_lang}.
+    return f"""Bạn là chuyên gia thuật ngữ học và tổng biên tập dịch sách chuyên nghiệp.
+Hãy phân tích đoạn trích mẫu của cuốn sách dưới đây và trích xuất tối đa {max_terms} thuật ngữ chuyên ngành, nhan đề tài liệu, tiêu đề chương mục/biểu mẫu cốt lõi, tên nhân vật, tên tổ chức hoặc địa danh quan trọng nhất cần được thống nhất cách dịch sang {target_lang}.
 
 ### YÊU CẦU:
-1. Chỉ chọn các thuật ngữ chuyên môn, khái niệm đặc thù của sách hoặc tên riêng xuất hiện nhiều lần / đóng vai trò quan trọng. Không chọn từ vựng thông thường.
-2. Đề xuất bản dịch chuẩn xác nhất trong {target_lang} (hoặc giữ nguyên kèm chú thích nếu là tên riêng/viết tắt quốc tế không nên dịch).
+1. Bắt buộc bao gồm nhan đề chính của sách/tài liệu, các thuật ngữ khung phương pháp luận và tên biểu mẫu/công cụ lặp lại nhiều lần. Không chọn từ vựng thông thường.
+2. Đề xuất bản dịch chuẩn xuất bản, tự nhiên và giàu tính chuyên môn trong {target_lang} (TUYỆT ĐỐI tránh dịch nghĩa đen từng chữ kiểu "người thực hành" cho "practitioner", "các thực hành" cho "practices", hay "nhìn-nghĩ-làm" cho "look-think-act").
 3. Trả về KẾT QUẢ DUY NHẤT ở định dạng JSON Array thuần túy (không bọc lời dẫn), mỗi phần tử có cấu trúc:
 [
-  {{"src": "thuật ngữ gốc", "dst": "bản dịch {target_lang} chuẩn", "note": "Giải thích ngắn / loại từ (VD: Thuật ngữ Kinh tế, Tên nhân vật, Tổ chức)"}}
+  {{"src": "thuật ngữ gốc", "dst": "bản dịch {target_lang} chuẩn xuất bản (không kèm tiếng Anh trong ngoặc)", "note": "Giải thích ngắn / loại từ"}}
 ]
 
 ### ĐOẠN TRÍCH MẪU CỦA SÁCH:
 \"\"\"
-{sample_text[:12000]}
+{sample_text[:15000]}
 \"\"\""""
 
 
@@ -234,19 +235,23 @@ def build_editor_system_prompt(
     System prompt for Agent 4: Chief Editor & Literary Critic Agent.
     Reviews draft translations against source text and polishes them to publication quality.
     """
-    base = f"""Bạn là biên tập viên cao tay, hiệu đính bản dịch sang {target_lang}. Bạn nhận từng đoạn gồm **SOURCE** (gốc) và **DRAFT** (bản dịch nháp) và trả về bản dịch cuối.
+    base = f"""Bạn là Tổng Biên tập xuất bản kỳ cựu, hiệu đính bản dịch sang {target_lang}. Bạn nhận từng đoạn gồm **SOURCE** (gốc) và **DRAFT** (bản dịch nháp) và trả về bản dịch hoàn thiện đạt chuẩn in sách.
 
-### TỰ PHÁN ĐOÁN, ĐỪNG SỬA ĐỂ CÓ SỬA:
-Với MỖI đoạn, tự đọc và quyết định:
-- Nếu DRAFT đã chính xác và đọc tự nhiên như người bản ngữ viết: trả về **NGUYÊN VĂN từng chữ**. Đây là kết quả tốt, không phải sự lười biếng. Tuyệt đối không thay từ đồng nghĩa hay đảo câu chỉ cho khác đi.
-- Chỉ sửa khi thấy lỗi thật: dịch sát chữ nghe như văn dịch, sai/lệch nghĩa hoặc sắc thái, sai thuật ngữ, lệch quy ước trong BOOK BRIEF/GLOSSARY, câu rườm hoặc gượng, sai giọng điệu so với loại tài liệu. Sửa đúng chỗ đó, giữ phần còn lại.
-- Khi sửa, giữ nguyên 100% ý nghĩa, số liệu, tên riêng, công thức, ký hiệu. Không thêm hay bớt ý, không "giải thích" thêm. Nếu SOURCE là một mảnh dở dang (đầu danh sách, câu bị cắt, nhãn ngắn) thì bản dịch cũng giữ đúng tính chất dở dang/ngắn đó, đừng tự làm cho "trọn vẹn".
-- Văn phong phải hợp với chính tài liệu này (đọc BOOK BRIEF): văn học khác pháp lý khác biểu mẫu. Nhịp câu, giọng điệu, độ trang trọng theo đó mà chọn.
-Giữ nguyên chính xác các dấu ⟦n⟧ ⟦/n⟧ ⟦n/⟧ (nếu có), đặt chúng vào đúng từ/cụm tương ứng; không bỏ, không thêm, không đổi số.
+### NGUYÊN TẮC HIỆU ĐÍNH:
+1. **Diệt tận gốc "mùi văn dịch" & lỗi dịch sát chữ (calque)**:
+   - Chủ động phát hiện và chuốt lại ngay các cụm dịch thô/bám chữ tiếng Anh: ví dụ "các thực hành" → "các biện pháp thực hành", "người thực hành" → "giáo viên/chuyên viên thực hành", "người huấn luyện" → "chuyên gia huấn luyện", "nhìn-nghĩ-làm" → "Quan sát – Suy ngẫm – Hành động", "buổi họp phản hồi theo hướng suy ngẫm và phản hồi" (lặp từ) → "buổi họp tổng kết & phản hồi trên tinh thần suy ngẫm", câu bị động "được/bị ... bởi", hoặc thừa từ "việc/sự/một cách" không cần thiết.
+   - Đảm bảo 100% thuật ngữ và nhan đề tuân thủ đúng **GLOSSARY** và **BOOK BRIEF**.
+2. **Không sửa vô lối khi câu đã mượt**:
+   - Nếu DRAFT đã chuẩn thuật ngữ, đúng nghĩa và đọc tự nhiên, súc tích như người bản ngữ viết: giữ nguyên.
+3. **Bảo toàn cấu trúc & dữ liệu tuyệt đối**:
+   - Giữ nguyên 100% ý nghĩa, số liệu, tên riêng, công thức, URL, chuỗi gạch chân điền khuyết (`_____`), ký hiệu. Nếu SOURCE là nhãn ngắn trong bảng/biểu mẫu hoặc vế danh sách ngắn, bản dịch phải cô đọng tương đương để không tràn khung bố cục.
+   - Giữ nguyên chính xác các dấu ⟦n⟧ ⟦/n⟧ ⟦n/⟧ (nếu có), đặt chúng vào đúng từ/cụm tương ứng; không bỏ, không thêm, không đổi số.
 """
     blocks = [base]
     if custom_prompt and custom_prompt.strip():
         blocks.append(f"### CHỈ DẪN VĂN PHONG ĐẶC BIỆT:\n{custom_prompt.strip()}")
+    if book_brief and book_brief.strip():
+        blocks.append(f"### BOOK BRIEF (bắt buộc tuân thủ):\n{book_brief.strip()}")
     glossary_str = format_glossary_block(glossary)
     if glossary_str:
         blocks.append(glossary_str)
@@ -276,7 +281,7 @@ def build_editor_batch_user_prompt(
 
 
 def build_book_profile_prompt(
-    sample_text: str, target_lang: str = "Tiếng Việt", max_terms: int = 40, layout_hint: str = ""
+    sample_text: str, target_lang: str = "Tiếng Việt", max_terms: int = 50, layout_hint: str = ""
 ) -> str:
     """Agent 2: AI đọc tài liệu, tự hiểu nó là gì, dùng để làm gì, rồi tự viết ghi chú dịch thuật cho ĐÚNG tài liệu này
     (không có danh sách ô cố định phải điền)."""
@@ -285,21 +290,28 @@ def build_book_profile_prompt(
         if layout_hint and layout_hint.strip()
         else ""
     )
-    return f"""Bạn là một dịch giả kiêm biên tập viên giàu kinh nghiệm, sắp dẫn dắt một nhóm dịch tài liệu dưới đây sang {target_lang}.
-Trước khi ai bắt tay dịch, hãy ĐỌC KỸ đoạn trích (lấy từ đầu, giữa, cuối) và tự HIỂU: đây là tài liệu gì, ai viết cho ai, dùng vào việc gì, giọng điệu ra sao, và một bản dịch xuất sắc của NÓ cần chú ý những gì.
-Đừng làm theo danh sách kiểm tra có sẵn. Tiểu thuyết, hợp đồng, biểu mẫu, sách nấu ăn, giáo trình, sách lập trình, truyện thiếu nhi... mỗi loại đòi hỏi những cân nhắc rất khác nhau; hãy tự nghĩ như một người trong nghề xem VỚI TÀI LIỆU NÀY điều gì thật sự quan trọng (có thể là cách gọi tên tổ chức, ngày tháng và đơn vị, giọng văn, nhịp câu, độ dài bản dịch so với khung chứa, thuật ngữ, lời thoại, thơ vần, đoạn nào phải giữ nguyên...), và chỉ viết những điều đáng viết.
-Trả về DUY NHẤT một JSON object (không lời dẫn, không markdown):
+    return f"""Bạn là Tổng Biên tập kiêm dịch giả trưởng giàu kinh nghiệm, sắp dẫn dắt nhóm dịch tài liệu dưới đây sang {target_lang}.
+Trước khi dịch, hãy ĐỌC KỸ đoạn trích (gồm trang bìa/mục lục, phần đầu, phần giữa, phần cuối/phụ lục) và xác lập quy chuẩn dịch thuật đạt chất lượng xuất bản cao nhất cho tài liệu này.
+
+### LƯU Ý QUAN TRỌNG KHI LẬP HỒ SƠ & BẢNG THUẬT NGỮ (GLOSSARY):
+1. **Chống dịch sát chữ (anti-calque)**: Tuyệt đối không dịch nghĩa đen ngây ngô từng từ đơn. Hãy chọn thuật ngữ chuyên ngành chuẩn mực, tự nhiên trong {target_lang}:
+   - Ví dụ trong giáo dục/đào tạo: "Practitioner" dịch là "Giáo viên thực hành / Chuyên viên thực hành" (KHÔNG dịch "Người thực hành"); "Coach" dịch là "Chuyên gia huấn luyện / Giảng viên huấn luyện" (KHÔNG dịch "Người huấn luyện"); "Practices" dịch là "Các biện pháp thực hành / Thông lệ thực hành" (KHÔNG dịch "Các thực hành"); "Focused Observation" dịch là "Quan sát trọng tâm"; "Debriefing Session" dịch là "Buổi họp tổng kết & phản hồi"; "Look-Think-Act" dịch là "Quan sát – Suy ngẫm – Hành động"; "Caseload" dịch là "Khối lượng phụ trách / Danh sách phụ trách".
+2. **Đồng bộ Nhan đề sách, Đề mục Mục lục & Biểu mẫu**:
+   - BẮT BUỘC đưa **Nhan đề chính của sách/tài liệu** (thường lặp lại ở trang bìa và tiêu đề đầu/cuối mỗi trang), **Tên các Chương/Phần lớn** trong Mục lục, và **Tên các Biểu mẫu/Bảng kiểm (Checklist/Form)** vào `glossary` để toàn bộ các trang dịch khớp nhau 100%.
+
+Trả về DUY NHẤT một JSON object hợp lệ (không lời dẫn, không bọc markdown):
 
 {{
-  "document_type": "tài liệu này là loại gì, mô tả bằng lời của bạn (không chọn từ danh sách)",
-  "understanding": "1-3 câu: tài liệu nói về gì, ai viết cho ai, dùng để làm gì",
-  "translator_notes": "ghi chú viết tự do cho cả nhóm dịch: những quyết định và lưu ý của BẠN cho riêng tài liệu này, kèm lý do ngắn khi cần. Dài ngắn tùy ý, viết như một biên tập viên dặn dò đồng nghiệp, nêu cụ thể và hành động được",
-  "address_rules": "nếu có nhân vật/người nói thì quy ước xưng hô khi dịch sang {target_lang} (cụ thể theo quan hệ); nếu không áp dụng thì để rỗng",
-  "do_not_translate": ["tên/thuật ngữ/đoạn nên giữ nguyên tiếng gốc"],
-  "glossary": [{{"src": "thuật ngữ/tên riêng gốc", "dst": "cách dịch chuẩn, CHỈ phần {target_lang}, không kèm bản gốc trong ngoặc", "note": "loại, ngắn gọn"}}]
+  "document_type": "mô tả cụ thể loại tài liệu và lĩnh vực chuyên môn",
+  "title_translation": "bản dịch chuẩn xuất bản của nhan đề chính cuốn sách/tài liệu",
+  "understanding": "1-3 câu: tài liệu nói về gì, ai viết cho ai, dùng vào mục đích gì",
+  "translator_notes": "chỉ dẫn biên tập chi tiết và sắc bén cho nhóm dịch: cách chọn từ vựng chuyên môn, cách tránh các bẫy dịch word-by-word trong tài liệu này, yêu cầu cô đọng cho các ô bảng/biểu mẫu/sơ đồ",
+  "address_rules": "quy ước xưng hô thống nhất khi dịch sang {target_lang} (VD: xưng 'bạn' với độc giả/chuyên gia huấn luyện, gọi 'giáo viên', 'trẻ'...), để rỗng nếu không áp dụng",
+  "do_not_translate": ["các mã viết tắt, URL, tên miền, ký hiệu giữ nguyên gốc"],
+  "glossary": [{{"src": "thuật ngữ/nhan đề/đề mục gốc", "dst": "bản dịch {target_lang} chuẩn xuất bản, KHÔNG kèm tiếng gốc trong ngoặc", "note": "loại thuật ngữ"}}]
 }}
 
-Yêu cầu glossary: tối đa {max_terms} mục; chỉ gồm tên nhân vật, địa danh, tổ chức, khái niệm/thuật ngữ đặc thù xuất hiện nhiều hoặc quan trọng; KHÔNG đưa từ vựng thông thường.
+Yêu cầu glossary: tối đa {max_terms} mục quan trọng nhất (ưu tiên nhan đề tài liệu, thuật ngữ cốt lõi, tên biểu mẫu, tên tổ chức, chức danh); KHÔNG đưa từ vựng thông thường.
 {layout_block}
 ### ĐOẠN TRÍCH:
 \"\"\"
@@ -312,6 +324,7 @@ def format_book_brief(profile: Dict[str, object]) -> str:
     lines: List[str] = []
     for key, label in (
         ("document_type", "Loại tài liệu"),
+        ("title_translation", "Nhan đề tài liệu chuẩn"),
         ("understanding", "Hiểu về tài liệu"),
         ("genre", "Thể loại"),
         ("audience", "Độc giả"),

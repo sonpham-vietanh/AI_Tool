@@ -272,3 +272,51 @@ def test_free_form_brief_is_rendered_and_old_profile_format_still_works():
     assert "Loại tài liệu: hợp đồng dịch vụ" in brief and "'shall' là 'phải'" in brief and "Northwind" in brief
     legacy = format_book_brief({"genre": "kinh doanh", "style_rules": ["ngắn gọn"], "policies": {"organization_names": "giữ"}})
     assert "kinh doanh" in legacy and "ngắn gọn" in legacy and "organization_names: giữ" in legacy
+
+
+def test_strip_markup_tags_and_trim_form_underscores():
+    _font_or_skip()
+    assert pi._strip_markup_tags("<b>Hình thức:</b> <i>Trực tiếp</i> hoặc **Từ xa**") == "Hình thức: Trực tiếp hoặc Từ xa"
+    font = pi._get_font(pi.resolve_font_path(False, False, False))
+    box = fitz.Rect(0, 0, 140, 18)
+    raw = "Chuyên gia huấn luyện: ____________________"
+    trimmed = pi._trim_form_underscores(font, box, raw, 10.0, None, 0)
+    assert trimmed.startswith("Chuyên gia huấn luyện: ____")
+    assert len(trimmed) < len(raw)
+    assert pi._fits(font, box, trimmed, 10.0, None, 0)
+
+
+def test_deduplicate_overlapping_units_and_keep_line_rects(tmp_path):
+    def build(p):
+        p.insert_text((40, 260), "Duplicate footer text", fontname="helv", fontsize=10)
+        p.insert_text((40, 260.4), "Duplicate footer text", fontname="helv", fontsize=10)
+
+    path = make_pdf(tmp_path / "dup.pdf", build)
+    units = pi.extract_units(fitz.open(path))
+    assert len(units) == 1
+    assert units[0].text == "Duplicate footer text"
+    assert len(units[0].line_rects) >= 2
+
+
+def test_inline_style_continuity_merges_body_paragraph(tmp_path):
+    def build(p):
+        p.insert_text((40, 60), "Use the online form at", fontname="helv", fontsize=11, color=(0, 0, 0))
+        p.insert_text((40, 74), "our official training portal", fontname="hebo", fontsize=11, color=(0, 0.4, 0.8))
+
+    path = make_pdf(tmp_path / "inline_style.pdf", build)
+    units = pi.extract_units(fitz.open(path))
+    assert len(units) == 1
+    assert units[0].text == "Use the online form at our official training portal"
+
+
+def test_vector_line_prevents_merging_adjacent_table_cells(tmp_path):
+    def build(p):
+        p.insert_text((40, 80), "Yes", fontname="helv", fontsize=10)
+        p.draw_line(fitz.Point(68, 65), fitz.Point(68, 95), color=(0, 0, 0), width=1)
+        p.insert_text((74, 80), "No", fontname="helv", fontsize=10)
+
+    path = make_pdf(tmp_path / "table_vline.pdf", build)
+    units = pi.extract_units(fitz.open(path))
+    texts = [u.text for u in units]
+    assert "Yes" in texts and "No" in texts
+
