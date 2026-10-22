@@ -564,7 +564,10 @@ def _merge_units(units: List[Unit], v_lines: Optional[List[fitz.Rect]] = None,
         if prev is not None and _can_merge(prev, u, v_lines=v_lines, h_lines=h_lines):
             prev.rect |= u.rect
             prev.line_rects += u.line_rects
-            prev.text = clean_text(prev.text + " " + u.text)
+            if re.search(r"(?:https?://|www\.)\S*[/\-]$", prev.text.strip(), re.I):
+                prev.text = clean_text(prev.text.rstrip() + u.text.lstrip())
+            else:
+                prev.text = clean_text(prev.text + " " + u.text)
             prev.ended_with_tab = u.ended_with_tab
             prev._last_style = u._last_style
             prev._styled_lines.extend(u._styled_lines)

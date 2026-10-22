@@ -264,6 +264,39 @@ _EN_LEFTOVER_IGNORE = {w.lower() for w in COMMON_STOPWORDS} | {
     "test", "model", "alpha", "beta", "gamma", "delta", "omega", "chapter", "section",
 }
 
+_COMMON_EN_TERMS_LEAK_RE = re.compile(
+    r"(?<![A-Za-z0-9_/\-\.])("
+    r"Coaching|Coaches|Practitioner|Practitioners|Implementation|Supporting|Supports|"
+    r"Goals|Action\s+Planning|Action\s+Plan|Contents|Guide\s+Contents|Key\s+Terms|"
+    r"Checklist|Checklists|Observation|Observations|Debriefing|Scheduling|Schedules|"
+    r"Teachers|Materials|Organize|Reflective|Questions|Focused|Partnerships|Partnership|"
+    r"Leadership\s+Team|Classroom|Spreadsheets|Spreadsheet"
+    r")(?![A-Za-z0-9_/\-\.])",
+    re.IGNORECASE,
+)
+
+
+def _has_en_term_leak(src: str, dst: str) -> bool:
+    """Detects common English pedagogical/document terms leaked untranslated into Vietnamese output."""
+    if not src or not dst:
+        return False
+    d_strip = dst.strip()
+    if d_strip.startswith("VI(") and d_strip.endswith(")"):
+        return False
+    # Strip URLs before checking
+    cleaned = re.sub(r"https?://\S+|www\.\S+|__URL_\d+__", "", d_strip)
+    if _COMMON_EN_TERMS_LEAK_RE.search(cleaned):
+        return True
+    # Also catch mixed Vietnamese + capitalized English nouns like 'Xem lại Data', 'để Support các', 'trong Action'
+    if re.search(
+        r"(?:quá\s+trình|buổi|lịch|xem\s+lại|xem\s+xét|để|các|trong|của|với)\s+"
+        r"(?:Coaching|Data|Support|Goals|Goal|Action|Practice|Practices|Teacher|Coach|Tools|Form)\b",
+        cleaned,
+        re.IGNORECASE,
+    ):
+        return True
+    return False
+
 
 _LLM_REFUSAL_START_RE = re.compile(
     r"(?i)^\s*(?:"
@@ -315,6 +348,10 @@ def _should_invoke_editor(
     if glossary and find_missing_dst(src, draft, glossary):
         return True
 
+    # 1b. Common English pedagogical/heading term leak check
+    if _has_en_term_leak(src, draft):
+        return True
+
     # 2. Common Vietnamese calques check
     if _VI_CALQUE_RE.search(draft):
         return True
@@ -363,7 +400,7 @@ def _should_invoke_editor(
     if not is_synthetic_stub:
         s_strip = src.strip()
         if (
-            len(s_strip) >= 85
+            len(s_strip) >= 32
             or "“" in s_strip
             or "”" in s_strip
             or ("\"" in s_strip and ":" in s_strip)
@@ -435,6 +472,8 @@ class TranslationLLMClient:
     def _is_untranslated(self, src: str, dst: str) -> bool:
         try:
             if _is_llm_refusal(src, dst):
+                return True
+            if (self.config.target_lang_code or "vi").startswith("vi") and _has_en_term_leak(src, dst):
                 return True
             return looks_untranslated(src, dst, self.config.target_lang_code or "vi")
         except Exception:  # a diagnostic must never break translation

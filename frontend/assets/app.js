@@ -21,7 +21,7 @@
       help: "💡 <strong>Google Gemini Ultra / AI Studio:</strong> Hỗ trợ <code>gemini-2.5-pro</code>, <code>gemini-ultra</code>, <code>gemini-2.5-flash</code>... Tự động bật <code>BLOCK_NONE</code> chống ngắt quãng. Có thể dán nhiều key AI Studio hoặc key Gemini Gateway vào Kho 2.",
     },
     hybrid: {
-      model: "cc/claude-sonnet-5-5",
+      model: "cc/claude-opus-5-5",
       baseUrl: "https://api.openai.com/v1",
       label: "Hybrid (Claude + Gemini)",
       help: "🔥 <strong>Chế độ Hybrid Song Song:</strong> Tự động chia tải (Load-Balance) đồng thời qua cả <strong>Kho 1 (Claude Gateway)</strong> và <strong>Kho 2 (Gemini Ultra)</strong> — Tăng gấp đôi tốc độ dịch và tự động đổi sang Engine còn lại nếu 1 bên chạm giới hạn Rate Limit!",
@@ -33,15 +33,15 @@
       help: "💡 <strong>DeepSeek API:</strong> Văn phong dịch sách chuyên ngành và tiểu thuyết cực kỳ mượt mà, chi phí rẻ.",
     },
     openai: {
-      model: "cc/claude-sonnet-5-5",
+      model: "cc/claude-opus-5-5",
       baseUrl: "https://api.openai.com/v1",
       label: "Claude Gateway",
-      help: "💡 <strong>Custom AI Gateway:</strong> Nhập Base URL của gateway tương thích OpenAI và API key của bạn. Các model gợi ý: <code>cc/claude-sonnet-5-5</code>, <code>cc/claude-opus-5-5</code>, <code>cc/claude-fable-5-1</code>, <code>cc/claude-haiku-4-5-20251001</code>.",
+      help: "💡 <strong>Custom AI Gateway:</strong> Nhập Base URL của gateway tương thích OpenAI và API key của bạn. Các model gợi ý: <code>cc/claude-opus-5-5</code>, <code>cc/claude-fable-5-1</code>, <code>cc/claude-sonnet-5-5</code>, <code>cc/claude-haiku-4-5-20251001</code>.",
     },
     claude: {
-      model: "cc/claude-sonnet-5-5",
+      model: "cc/claude-opus-5-5",
       baseUrl: "https://api.openai.com/v1",
-      label: "Claude Sonnet 5.5",
+      label: "Claude Opus 5.5",
       help: "💡 <strong>Anthropic Claude (qua Gateway):</strong> Văn phong dịch văn học, kinh tế và tâm lý học tự nhiên, mượt mà nhất.",
     },
     openrouter: {

@@ -233,6 +233,17 @@ def _polish_micro_details(src: str, dst: str) -> str:
 
     # 3) Nhãn phiên bản sửa đổi ở chân trang biểu mẫu ('Rev. 02-2021' / 'Rev: 02/2021' -> 'Bản sửa đổi: 02-2021')
     out = _REV_TAG_RE.sub("Bản sửa đổi: ", out)
+    out = re.sub(r"^(?:Sửa\s+đổi|Bản\s+sửa\s+đổi)\s*:?\s*(\d{2}[-/]\d{4})$", r"Bản sửa đổi: \1", out.strip(), flags=re.I)
+
+    # 3b) Chuẩn hóa các đề mục & cụm từ tiếng Anh nếu còn sót từ bộ nhớ đệm hoặc bản nháp
+    _exact_heading_map = {
+        "contents": "Mục lục",
+        "guide contents": "Nội dung Cẩm nang",
+        "key terms": "Thuật ngữ Chính",
+    }
+    low_out = out.strip().lower()
+    if low_out in _exact_heading_map:
+        out = _exact_heading_map[low_out]
 
     # 4) Nhãn trường biểu mẫu đi kèm gạch chân dài còn sót tiếng Anh ('Teacher: ____', 'Coach: ____', 'Date: ____')
     for pat, repl in _FORM_FIELD_UNDERSCORE_RULES:
@@ -535,7 +546,7 @@ async def translate_pdf_file(
         stats = await asyncio.to_thread(render_units, doc, units, fallback_font)
         logger.info("PDF in-place: %s", stats)
 
-        doc.save(mono_pdf_path, garbage=4, deflate=True)
+        doc.save(mono_pdf_path, garbage=1, deflate=True)
     finally:
         doc.close()
 

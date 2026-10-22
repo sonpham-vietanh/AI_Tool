@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import Dict, Optional
 
-CACHE_SCHEMA_VERSION = "v3"
+CACHE_SCHEMA_VERSION = "v4"
 
 
 class TranslationCache:
@@ -89,16 +89,7 @@ class TranslationCache:
             if row:
                 return row[0]
 
-            if context_salt:
-                plain_key = self.make_hash(src_text, target_lang, provider, model)
-                cursor.execute(
-                    "SELECT dst_text FROM cache WHERE hash_key = ?", (plain_key,)
-                )
-                row_plain = cursor.fetchone()
-                if row_plain:
-                    return row_plain[0]
-
-            # Chỉ cho phép dùng lại bản sửa tay của người dùng (không dùng bản dịch của model/provider khác)
+            # Chỉ cho phép dùng lại bản sửa tay của người dùng (không dùng bản dịch của model/provider khác hoặc bản không có context_salt)
             override_key = self.make_hash(
                 src_text, target_lang, "manual_override", "editor_override"
             )

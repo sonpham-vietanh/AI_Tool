@@ -66,13 +66,15 @@ def _load_saved_settings() -> LLMConfig:
             if raw.get("provider") == "gtx":
                 raw["provider"] = "google_free"
             raw.setdefault("editor_selective", True)
+            if raw.get("provider") in (None, "openai", "claude") and raw.get("model") in (None, "", "cc/claude-sonnet-5-5"):
+                raw["model"] = "cc/claude-opus-5-5"
             if os.environ.get("BTH_DISABLE_EDITOR") != "1":
                 raw["enable_editor_agent"] = True
-                if not raw.get("agent_editor_model"):
+                if not raw.get("agent_editor_model") or raw.get("agent_editor_model") == "cc/claude-sonnet-5-5":
                     raw["agent_editor_model"] = (
                         raw.get("model")
                         or (os.environ.get("BTH_MODEL") or "").strip()
-                        or "cc/claude-sonnet-5-5"
+                        or "cc/claude-opus-5-5"
                     )
             total_saved_keys = len(raw.get("api_keys") or []) + len(raw.get("gemini_api_keys") or [])
             if total_saved_keys <= 1 and raw.get("provider") not in ("google_free",) and int(raw.get("concurrency") or 4) > 4:
