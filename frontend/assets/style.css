@@ -4,36 +4,36 @@
    ========================================================================== */
 
 /* ==========================================================================
-   BookTranslator Studio - Việt Anh Design System (refactor 2026-07)
-   navy #14153A, CTA vàng gradient chữ navy, Manrope, chữ >= 16px, nút vuông
+   BookTranslator Studio - Brand Guideline MASTER v2.0 (điều chỉnh)
+   navy #26275D, vàng #F9DD0E chữ navy, nền #F0F4F8, Be Vietnam Pro, chữ >= 16px, nút vuông
    ========================================================================== */
 
 :root,
 [data-theme="light"] {
-  --bg-app: #faf9f4;
-  --bg-sidebar: #14153a;
+  --bg-app: #f0f4f8;
+  --bg-sidebar: #26275d;
   --bg-surface: #ffffff;
-  --bg-elevated: #f3f1e6;
+  --bg-elevated: #e8eef5;
   --bg-input: #ffffff;
-  --bg-hover: #fbf6dc;
-  --bg-active: rgba(20, 21, 58, 0.08);
+  --bg-hover: #fdf8d2;
+  --bg-active: rgba(38, 39, 93, 0.08);
 
-  --border: #e7e5da;
-  --border-subtle: #efede2;
-  --border-strong: rgba(20, 21, 58, 0.45);
+  --border: #e2e8f0;
+  --border-subtle: #edf1f6;
+  --border-strong: rgba(38, 39, 93, 0.45);
 
   --text-main: #1a1a2e;
-  --text-sub: #54556e;
-  --text-muted: #6b6c85;
+  --text-sub: #4a5068;
+  --text-muted: #646b82;
 
-  --primary: #14153a;
-  --primary-hover: #26275d;
-  --primary-soft: rgba(20, 21, 58, 0.08);
+  --primary: #26275d;
+  --primary-hover: #1c1d4a;
+  --primary-soft: rgba(38, 39, 93, 0.08);
   --primary-text: #26275d;
   --on-primary: #ffffff;
   --gold: #e8c40a;
-  --gold-text: #7a5f00;
-  --cta-gradient: linear-gradient(135deg, #f9dd0e, #e0b90c);
+  --gold-text: #6e5600;
+  --cta-gradient: linear-gradient(135deg, #f9dd0e, #f3d30b);
 
   --success: #047857;
   --success-soft: rgba(5, 150, 105, 0.1);
@@ -47,27 +47,27 @@
   --danger-soft: rgba(225, 29, 72, 0.1);
   --danger-text: #be123c;
 
-  --shadow-sm: 0 1px 2px rgba(20, 21, 58, 0.06);
-  --shadow-md: 0 8px 24px rgba(20, 21, 58, 0.1);
-  --shadow-lg: 0 24px 48px rgba(20, 21, 58, 0.18);
+  --shadow-sm: 0 1px 2px rgba(38, 39, 93, 0.06);
+  --shadow-md: 0 8px 24px rgba(38, 39, 93, 0.1);
+  --shadow-lg: 0 24px 48px rgba(38, 39, 93, 0.18);
 
   --radius-xs: 3px;
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 10px;
 
-  --font-sans: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-serif: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-mono: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-sans: "Be Vietnam Pro", Arial, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-serif: "Be Vietnam Pro", Arial, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "Be Vietnam Pro", Arial, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 /* Nền tối: navy gradient + chấm 5% */
 [data-theme="dark"] {
-  --bg-app: #0d0e2b;
-  --bg-sidebar: #090a21;
-  --bg-surface: #14153a;
-  --bg-elevated: #1c1d4a;
-  --bg-input: #0f1030;
+  --bg-app: #15163f;
+  --bg-sidebar: #101133;
+  --bg-surface: #1e1f50;
+  --bg-elevated: #26275d;
+  --bg-input: #17184a;
   --bg-hover: rgba(255, 255, 255, 0.06);
   --bg-active: rgba(249, 221, 14, 0.12);
 
@@ -83,7 +83,7 @@
   --primary-hover: #e0b90c;
   --primary-soft: rgba(249, 221, 14, 0.14);
   --primary-text: #f9dd0e;
-  --on-primary: #14153a;
+  --on-primary: #26275d;
   --gold-text: #e8c40a;
 
   --success-text: #6ee7b7;
@@ -116,7 +116,7 @@
   --text-muted: #a6a7cc;
   --primary-text: #f9dd0e;
   --primary-soft: rgba(249, 221, 14, 0.14);
-  background: #14153a;
+  background: #26275d;
 }
 
 *,
@@ -2405,7 +2405,7 @@ body {
 .btn-sm:hover:not(:disabled),
 .btn-outline-sm:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(20, 21, 58, 0.18);
+  box-shadow: 0 6px 16px rgba(38, 39, 93, 0.18);
 }
 .btn:focus-visible,
 .btn-sm:focus-visible,
@@ -2415,7 +2415,7 @@ textarea:focus-visible,
 button:focus-visible {
   outline: 2px solid #e2e3f0;
   outline-offset: 2px;
-  box-shadow: 0 0 0 4px rgba(20, 21, 58, 0.35);
+  box-shadow: 0 0 0 4px rgba(38, 39, 93, 0.35);
 }
 [data-theme="dark"] .btn:focus-visible,
 [data-theme="dark"] button:focus-visible,
@@ -2438,15 +2438,15 @@ button:focus-visible {
 .btn-primary-gradient,
 #btnSearchAndPick {
   background: var(--cta-gradient, linear-gradient(135deg, #f9dd0e, #e0b90c));
-  color: #14153a;
+  color: #26275d;
   border: 1px solid transparent;
   text-transform: none;
 }
 .btn-new-campaign:hover,
 .btn-primary-gradient:hover:not(:disabled),
 #btnSearchAndPick:hover:not(:disabled) {
-  background: linear-gradient(135deg, #fbe53a, #e8c40a);
-  color: #14153a;
+  background: linear-gradient(135deg, #fbe53a, #f6d90c);
+  color: #26275d;
 }
 
 /* Thẻ 10px, input 6px, tag 3px */
