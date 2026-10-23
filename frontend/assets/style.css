@@ -3,120 +3,93 @@
    Inspired by LobeChat, Immersive Translate Pro, BabelDOC, Linear & Readest
    ========================================================================== */
 
-/* ==========================================================================
-   BookTranslator Studio - Việt Anh Design System (refactor 2026-07)
-   navy #14153A, CTA vàng gradient chữ navy, Manrope, chữ >= 16px, nút vuông
-   ========================================================================== */
-
 :root,
+[data-theme="dark"] {
+  --bg-app: #09090b;
+  --bg-sidebar: #0c0c0f;
+  --bg-surface: #121216;
+  --bg-elevated: #18181d;
+  --bg-input: #0e0e12;
+  --bg-hover: rgba(255, 255, 255, 0.045);
+  --bg-active: rgba(99, 102, 241, 0.13);
+
+  --border: rgba(255, 255, 255, 0.075);
+  --border-subtle: rgba(255, 255, 255, 0.045);
+  --border-strong: rgba(129, 140, 248, 0.38);
+
+  --text-main: #f4f4f5;
+  --text-sub: #d4d4d8;
+  --text-muted: #71717a;
+
+  --primary: #6366f1;
+  --primary-hover: #4f46e5;
+  --primary-soft: rgba(99, 102, 241, 0.14);
+  --primary-text: #a5b4fc;
+
+  --success: #10b981;
+  --success-soft: rgba(16, 185, 129, 0.13);
+  --success-text: #6ee7b7;
+
+  --warning: #f59e0b;
+  --warning-soft: rgba(245, 158, 11, 0.12);
+  --warning-text: #fcd34d;
+
+  --danger: #f43f5e;
+  --danger-soft: rgba(244, 63, 94, 0.12);
+  --danger-text: #fda4af;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 24px 48px rgba(0, 0, 0, 0.65);
+
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-serif: "Lora", "Georgia", serif;
+  --font-mono: "JetBrains Mono", monospace;
+}
+
+/* Warm Paper Literary Light Mode (like Readest / Notion / Calibre) */
 [data-theme="light"] {
-  --bg-app: #faf9f4;
-  --bg-sidebar: #14153a;
+  --bg-app: #f6f5f1;
+  --bg-sidebar: #efede7;
   --bg-surface: #ffffff;
-  --bg-elevated: #f3f1e6;
-  --bg-input: #ffffff;
-  --bg-hover: #fbf6dc;
-  --bg-active: rgba(20, 21, 58, 0.08);
+  --bg-elevated: #f3f1ec;
+  --bg-input: #faf9f6;
+  --bg-hover: rgba(0, 0, 0, 0.04);
+  --bg-active: rgba(79, 70, 229, 0.09);
 
-  --border: #e7e5da;
-  --border-subtle: #efede2;
-  --border-strong: rgba(20, 21, 58, 0.45);
+  --border: rgba(24, 24, 27, 0.1);
+  --border-subtle: rgba(24, 24, 27, 0.06);
+  --border-strong: rgba(79, 70, 229, 0.38);
 
-  --text-main: #1a1a2e;
-  --text-sub: #54556e;
-  --text-muted: #6b6c85;
+  --text-main: #18181b;
+  --text-sub: #3f3f46;
+  --text-muted: #71717a;
 
-  --primary: #14153a;
-  --primary-hover: #26275d;
-  --primary-soft: rgba(20, 21, 58, 0.08);
-  --primary-text: #26275d;
-  --on-primary: #ffffff;
-  --gold: #e8c40a;
-  --gold-text: #7a5f00;
-  --cta-gradient: linear-gradient(135deg, #f9dd0e, #e0b90c);
+  --primary: #4f46e5;
+  --primary-hover: #4338ca;
+  --primary-soft: rgba(79, 70, 229, 0.1);
+  --primary-text: #4338ca;
 
-  --success: #047857;
+  --success: #059669;
   --success-soft: rgba(5, 150, 105, 0.1);
   --success-text: #047857;
 
-  --warning: #e0b90c;
-  --warning-soft: rgba(224, 185, 12, 0.16);
-  --warning-text: #7a5f00;
+  --warning: #d97706;
+  --warning-soft: rgba(217, 119, 6, 0.1);
+  --warning-text: #b45309;
 
-  --danger: #be123c;
+  --danger: #e11d48;
   --danger-soft: rgba(225, 29, 72, 0.1);
   --danger-text: #be123c;
 
-  --shadow-sm: 0 1px 2px rgba(20, 21, 58, 0.06);
-  --shadow-md: 0 8px 24px rgba(20, 21, 58, 0.1);
-  --shadow-lg: 0 24px 48px rgba(20, 21, 58, 0.18);
-
-  --radius-xs: 3px;
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 10px;
-
-  --font-sans: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-serif: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-mono: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-}
-
-/* Nền tối: navy gradient + chấm 5% */
-[data-theme="dark"] {
-  --bg-app: #0d0e2b;
-  --bg-sidebar: #090a21;
-  --bg-surface: #14153a;
-  --bg-elevated: #1c1d4a;
-  --bg-input: #0f1030;
-  --bg-hover: rgba(255, 255, 255, 0.06);
-  --bg-active: rgba(249, 221, 14, 0.12);
-
-  --border: rgba(255, 255, 255, 0.1);
-  --border-subtle: rgba(255, 255, 255, 0.06);
-  --border-strong: rgba(249, 221, 14, 0.4);
-
-  --text-main: #f4f4fa;
-  --text-sub: #d2d3e8;
-  --text-muted: #9a9bc4;
-
-  --primary: #f9dd0e;
-  --primary-hover: #e0b90c;
-  --primary-soft: rgba(249, 221, 14, 0.14);
-  --primary-text: #f9dd0e;
-  --on-primary: #14153a;
-  --gold-text: #e8c40a;
-
-  --success-text: #6ee7b7;
-  --success: #10b981;
-  --warning: #f9dd0e;
-  --warning-soft: rgba(249, 221, 14, 0.12);
-  --warning-text: #fcd34d;
-  --danger: #f43f5e;
-  --danger-text: #fda4af;
-  --danger-soft: rgba(244, 63, 94, 0.14);
-
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 24px 48px rgba(0, 0, 0, 0.7);
-}
-
-/* Thanh bên luôn navy (kể cả theme sáng): khai báo lại token cho ngữ cảnh nền tối */
-[data-theme="light"] .app-sidebar,
-:root:not([data-theme]) .app-sidebar {
-  --bg-surface: rgba(255, 255, 255, 0.05);
-  --bg-elevated: rgba(255, 255, 255, 0.07);
-  --bg-input: rgba(255, 255, 255, 0.07);
-  --bg-hover: rgba(255, 255, 255, 0.08);
-  --bg-active: rgba(249, 221, 14, 0.13);
-  --border: rgba(255, 255, 255, 0.12);
-  --border-subtle: rgba(255, 255, 255, 0.07);
-  --border-strong: rgba(249, 221, 14, 0.45);
-  --text-main: #f4f4fa;
-  --text-sub: #d7d8ea;
-  --text-muted: #a6a7cc;
-  --primary-text: #f9dd0e;
-  --primary-soft: rgba(249, 221, 14, 0.14);
-  background: #14153a;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 24px 48px rgba(0, 0, 0, 0.14);
 }
 
 *,
@@ -131,7 +104,7 @@ html,
 body {
   height: 100%;
   font-family: var(--font-sans);
-  font-size: 16px;
+  font-size: 13.5px;
   line-height: 1.5;
   color: var(--text-main);
   background-color: var(--bg-app);
@@ -162,10 +135,10 @@ body {
   color: var(--text-muted);
 }
 .text-xs {
-  font-size: 1rem;
+  font-size: 0.76rem;
 }
 .text-sm {
-  font-size: 1rem;
+  font-size: 0.84rem;
 }
 .text-center {
   text-align: center;
@@ -219,12 +192,12 @@ body {
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  background: linear-gradient(135deg, var(--primary), var(--primary-text));
+  background: linear-gradient(135deg, var(--primary), #8b5cf6);
   color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 10px rgba(232, 196, 10, 0.3);
+  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.3);
   flex-shrink: 0;
 }
 
@@ -241,7 +214,7 @@ body {
 }
 
 .brand-name {
-  font-size: 1rem;
+  font-size: 0.95rem;
   font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--text-main);
@@ -249,7 +222,7 @@ body {
 
 .brand-tag {
   font-family: var(--font-mono);
-  font-size: 1rem;
+  font-size: 0.62rem;
   font-weight: 700;
   padding: 0.08rem 0.38rem;
   border-radius: 4px;
@@ -259,7 +232,7 @@ body {
 }
 
 .brand-sub {
-  font-size: 1rem;
+  font-size: 0.7rem;
   color: var(--text-muted);
 }
 
@@ -279,7 +252,7 @@ body {
   background: var(--primary);
   color: #fff;
   font-family: var(--font-sans);
-  font-size: 1rem;
+  font-size: 0.82rem;
   font-weight: 600;
   border: 1px solid rgba(255, 255, 255, 0.12);
   cursor: pointer;
@@ -303,7 +276,7 @@ body {
 }
 
 .sidebar-section-label {
-  font-size: 1rem;
+  font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   color: var(--text-muted);
@@ -321,7 +294,7 @@ body {
   background: transparent;
   color: var(--text-sub);
   font-family: var(--font-sans);
-  font-size: 1rem;
+  font-size: 0.8rem;
   font-weight: 500;
   cursor: pointer;
   text-align: left;
@@ -336,7 +309,7 @@ body {
 .sidebar-nav-item.active {
   background: var(--bg-active);
   color: var(--primary-text);
-  border-color: rgba(232, 196, 10, 0.22);
+  border-color: rgba(99, 102, 241, 0.22);
   font-weight: 600;
 }
 
@@ -387,7 +360,7 @@ body {
   padding: 2rem 0.75rem;
   text-align: center;
   color: var(--text-muted);
-  font-size: 1rem;
+  font-size: 0.78rem;
   border: 1px dashed var(--border);
   border-radius: var(--radius-sm);
 }
@@ -424,7 +397,7 @@ body {
 }
 
 .job-card-title {
-  font-size: 1rem;
+  font-size: 0.81rem;
   font-weight: 600;
   color: var(--text-main);
   white-space: nowrap;
@@ -436,7 +409,7 @@ body {
 .job-card-meta {
   display: flex;
   justify-content: space-between;
-  font-size: 1rem;
+  font-size: 0.71rem;
   color: var(--text-muted);
   margin-bottom: 0.32rem;
 }
@@ -494,7 +467,7 @@ body {
 }
 
 .engine-chip-model {
-  font-size: 1rem;
+  font-size: 0.78rem;
   font-weight: 600;
   color: var(--text-main);
   white-space: nowrap;
@@ -503,7 +476,7 @@ body {
 }
 
 .engine-chip-meta {
-  font-size: 1rem;
+  font-size: 0.69rem;
   color: var(--text-muted);
   display: flex;
   align-items: center;
@@ -527,7 +500,7 @@ body {
   border: 1px solid var(--border);
   color: var(--text-sub);
   font-family: var(--font-sans);
-  font-size: 1rem;
+  font-size: 0.74rem;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -538,7 +511,7 @@ body {
 }
 .btn-sidebar-vault {
   color: var(--primary-text);
-  border-color: rgba(232, 196, 10, 0.25);
+  border-color: rgba(99, 102, 241, 0.25);
   background: var(--primary-soft);
 }
 
@@ -582,7 +555,7 @@ body {
   background: var(--bg-elevated);
   color: var(--text-main);
   font-family: var(--font-sans);
-  font-size: 1rem;
+  font-size: 0.78rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -604,7 +577,7 @@ body {
 
 .engine-pill {
   font-family: var(--font-sans);
-  font-size: 1rem;
+  font-size: 0.75rem;
   font-weight: 600;
   padding: 0.28rem 0.68rem;
   border-radius: 6px;
@@ -634,7 +607,7 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  font-size: 1rem;
+  font-size: 0.78rem;
   color: var(--text-muted);
 }
 
@@ -651,7 +624,7 @@ body {
   justify-content: center;
   gap: 0.42rem;
   font-family: var(--font-sans);
-  font-size: 1rem;
+  font-size: 0.82rem;
   font-weight: 600;
   padding: 0.5rem 0.95rem;
   border-radius: var(--radius-sm);
@@ -696,7 +669,7 @@ body {
 }
 
 .btn-outline-sm {
-  font-size: 1rem;
+  font-size: 0.78rem;
   padding: 0.36rem 0.72rem;
   background: var(--bg-surface);
   border: 1px solid var(--border);
@@ -715,7 +688,7 @@ body {
 }
 
 .btn-ghost-sm {
-  font-size: 1rem;
+  font-size: 0.76rem;
   font-weight: 500;
   padding: 0.3rem 0.6rem;
   background: transparent;
@@ -730,7 +703,7 @@ body {
 }
 
 .btn-danger-sm {
-  font-size: 1rem;
+  font-size: 0.76rem;
   font-weight: 600;
   padding: 0.34rem 0.72rem;
   background: var(--danger-soft);
@@ -745,7 +718,7 @@ body {
 }
 
 .btn-sm {
-  font-size: 1rem;
+  font-size: 0.76rem;
   padding: 0.36rem 0.72rem;
 }
 
@@ -773,7 +746,7 @@ body {
   background: none;
   border: none;
   color: var(--primary-text);
-  font-size: 1rem;
+  font-size: 0.76rem;
   font-weight: 600;
   cursor: pointer;
 }
@@ -786,7 +759,7 @@ body {
 .input-textarea {
   width: 100%;
   font-family: var(--font-sans);
-  font-size: 1rem;
+  font-size: 0.82rem;
   color: var(--text-main);
   background: var(--bg-input);
   border: 1px solid var(--border);
@@ -806,7 +779,7 @@ body {
 .input-text.mono,
 .input-textarea.mono {
   font-family: var(--font-mono);
-  font-size: 1rem;
+  font-size: 0.76rem;
 }
 
 .input-select-sm,
@@ -816,7 +789,7 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius-xs);
   padding: 0.34rem 0.55rem;
-  font-size: 1rem;
+  font-size: 0.78rem;
   font-family: var(--font-sans);
   outline: none;
 }
@@ -825,7 +798,7 @@ body {
   display: inline-flex;
   align-items: center;
   font-family: var(--font-mono);
-  font-size: 1rem;
+  font-size: 0.65rem;
   font-weight: 700;
   padding: 0.1rem 0.42rem;
   border-radius: 4px;
@@ -838,7 +811,7 @@ body {
 }
 .fmt-docx {
   background: rgba(59, 130, 246, 0.14);
-  color: var(--primary-text);
+  color: #60a5fa;
 }
 .fmt-pdf {
   background: var(--danger-soft);
@@ -851,7 +824,7 @@ body {
 
 .badge-pill {
   font-family: var(--font-mono);
-  font-size: 1rem;
+  font-size: 0.7rem;
   font-weight: 600;
   padding: 0.1rem 0.48rem;
   border-radius: 999px;
@@ -907,7 +880,7 @@ body {
   border-color: var(--border-strong);
 }
 .agent-node-card.agent-node-core {
-  border-color: rgba(232, 196, 10, 0.32);
+  border-color: rgba(99, 102, 241, 0.32);
 }
 .agent-node-card.agent-running {
   border-color: var(--success);
@@ -926,7 +899,7 @@ body {
 
 .agent-num-tag {
   font-family: var(--font-mono);
-  font-size: 1rem;
+  font-size: 0.64rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   color: var(--primary-text);
@@ -936,7 +909,7 @@ body {
 }
 
 .agent-state-dot {
-  font-size: 1rem;
+  font-size: 0.68rem;
   color: var(--text-muted);
 }
 
@@ -944,7 +917,7 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 0.28rem;
-  font-size: 1rem;
+  font-size: 0.7rem;
   color: var(--text-sub);
   cursor: pointer;
 }
@@ -954,13 +927,13 @@ body {
 }
 
 .agent-node-title {
-  font-size: 1rem;
+  font-size: 0.82rem;
   font-weight: 700;
   color: var(--text-main);
 }
 
 .agent-node-desc {
-  font-size: 1rem;
+  font-size: 0.71rem;
   color: var(--text-muted);
   line-height: 1.35;
 }
@@ -976,7 +949,7 @@ body {
   border: 1px solid var(--border);
   border-radius: 5px;
   padding: 0.28rem 0.45rem;
-  font-size: 1rem;
+  font-size: 0.73rem;
   font-family: var(--font-sans);
   outline: none;
   cursor: pointer;
@@ -1015,7 +988,7 @@ body {
   align-items: center;
   gap: 0.4rem;
   font-family: var(--font-sans);
-  font-size: 1rem;
+  font-size: 0.78rem;
   font-weight: 600;
   padding: 0.34rem 0.75rem;
   border-radius: 6px;
@@ -1041,12 +1014,12 @@ body {
   flex-wrap: wrap;
 }
 .chip-hint {
-  font-size: 1rem;
+  font-size: 0.72rem;
   color: var(--text-muted);
 }
 .quick-chip {
   font-family: var(--font-sans);
-  font-size: 1rem;
+  font-size: 0.72rem;
   padding: 0.2rem 0.55rem;
   border-radius: 999px;
   border: 1px solid var(--border);
@@ -1084,7 +1057,7 @@ body {
 .search-input {
   width: 100%;
   font-family: var(--font-sans);
-  font-size: 1rem;
+  font-size: 0.88rem;
   color: var(--text-main);
   background: var(--bg-input);
   border: 1px solid var(--border);
@@ -1104,7 +1077,7 @@ body {
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 1rem;
+  font-size: 0.82rem;
 }
 
 /* Dropzone Compact (BabelDOC / OpenWebUI style) */
@@ -1142,7 +1115,7 @@ body {
 }
 
 .dropzone-main-text {
-  font-size: 1rem;
+  font-size: 0.85rem;
   margin-bottom: 0.3rem;
 }
 
@@ -1154,7 +1127,7 @@ body {
 }
 
 .fmt-pill {
-  font-size: 1rem;
+  font-size: 0.69rem;
   padding: 0.1rem 0.45rem;
   border-radius: 4px;
   background: var(--bg-elevated);
@@ -1200,13 +1173,13 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 1rem;
+  font-size: 0.78rem;
 }
 
 .sandbox-textarea {
   min-height: 110px;
   resize: vertical;
-  font-size: 1rem;
+  font-size: 0.84rem;
   line-height: 1.55;
 }
 
@@ -1226,7 +1199,7 @@ body {
   border-radius: var(--radius-xs);
   background: var(--bg-surface);
   border: 1px solid var(--border);
-  font-size: 1rem;
+  font-size: 0.84rem;
   line-height: 1.6;
   white-space: pre-wrap;
 }
@@ -1248,7 +1221,7 @@ body {
 }
 
 .adv-field label {
-  font-size: 1rem;
+  font-size: 0.71rem;
   font-weight: 600;
   color: var(--text-muted);
 }
@@ -1267,7 +1240,7 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  font-size: 1rem;
+  font-size: 0.78rem;
   color: var(--text-sub);
   cursor: pointer;
   user-select: none;
@@ -1295,7 +1268,7 @@ body {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-size: 1rem;
+  font-size: 0.82rem;
 }
 
 .loading-inline {
@@ -1331,12 +1304,12 @@ body {
 .clean-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 1rem;
+  font-size: 0.8rem;
 }
 .clean-table th {
   text-align: left;
   padding: 0.5rem 0.75rem;
-  font-size: 1rem;
+  font-size: 0.7rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -1372,14 +1345,14 @@ body {
   justify-content: center;
   background: var(--bg-elevated);
   border-radius: 3px;
-  font-size: 1rem;
+  font-size: 0.85rem;
 }
 .book-title-cell {
   font-weight: 600;
   color: var(--text-main);
 }
 .book-sub-cell {
-  font-size: 1rem;
+  font-size: 0.7rem;
   color: var(--text-muted);
 }
 
@@ -1430,7 +1403,7 @@ body {
 }
 .empty-stage p {
   max-width: 540px;
-  font-size: 1rem;
+  font-size: 0.82rem;
   line-height: 1.55;
 }
 
@@ -1457,7 +1430,7 @@ body {
 }
 
 .job-status-badge {
-  font-size: 1rem;
+  font-size: 0.69rem;
   font-weight: 600;
   padding: 0.1rem 0.5rem;
   border-radius: 999px;
@@ -1480,7 +1453,7 @@ body {
 }
 
 .lang-tag-pill {
-  font-size: 1rem;
+  font-size: 0.72rem;
   font-weight: 600;
   color: var(--text-sub);
 }
@@ -1491,7 +1464,7 @@ body {
   gap: 0.25rem;
   padding: 0.1rem 0.5rem;
   border-radius: 999px;
-  font-size: 1rem;
+  font-size: 0.7rem;
   font-weight: 600;
   background: var(--success-soft);
   color: var(--success-text);
@@ -1512,7 +1485,7 @@ body {
 }
 
 .job-sub-msg {
-  font-size: 1rem;
+  font-size: 0.79rem;
   color: var(--text-muted);
 }
 
@@ -1548,7 +1521,7 @@ body {
   align-items: center;
   gap: 0.45rem;
   font-family: var(--font-mono);
-  font-size: 1rem;
+  font-size: 0.74rem;
   color: var(--text-muted);
 }
 
@@ -1576,7 +1549,7 @@ body {
   display: flex;
   align-items: center;
   gap: 0.38rem;
-  font-size: 1rem;
+  font-size: 0.74rem;
   color: var(--text-muted);
 }
 .step-num {
@@ -1589,7 +1562,7 @@ body {
   align-items: center;
   justify-content: center;
   font-family: var(--font-mono);
-  font-size: 1rem;
+  font-size: 0.66rem;
   font-weight: 700;
 }
 .step-item.active {
@@ -1626,7 +1599,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
-  font-size: 1rem;
+  font-size: 0.8rem;
 }
 .approval-banner-text strong {
   color: var(--warning-text);
@@ -1647,7 +1620,7 @@ body {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-size: 1rem;
+  font-size: 0.82rem;
 }
 .download-ready-dot {
   width: 8px;
@@ -1681,7 +1654,7 @@ body {
   align-items: center;
   gap: 0.4rem;
   font-family: var(--font-sans);
-  font-size: 1rem;
+  font-size: 0.79rem;
   font-weight: 600;
   padding: 0.36rem 0.75rem;
   border-radius: var(--radius-xs);
@@ -1702,7 +1675,7 @@ body {
 
 .live-dot {
   font-family: var(--font-mono);
-  font-size: 1rem;
+  font-size: 0.62rem;
   font-weight: 700;
   padding: 0.06rem 0.36rem;
   border-radius: 4px;
@@ -1712,7 +1685,7 @@ body {
 
 .tab-count-pill {
   font-family: var(--font-mono);
-  font-size: 1rem;
+  font-size: 0.66rem;
   padding: 0.04rem 0.36rem;
   border-radius: 999px;
   background: var(--bg-input);
@@ -1725,7 +1698,7 @@ body {
   grid-template-columns: 1fr 1fr;
   gap: 1.2rem;
   padding: 0.45rem 0.85rem;
-  font-size: 1rem;
+  font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -1745,7 +1718,7 @@ body {
   padding: 3rem 1rem;
   text-align: center;
   color: var(--text-muted);
-  font-size: 1rem;
+  font-size: 0.82rem;
 }
 
 .preview-pair-card {
@@ -1776,13 +1749,13 @@ body {
 body.serif-preview .preview-src-text,
 body.serif-preview .preview-dst-text {
   font-family: var(--font-serif);
-  font-size: 1rem;
+  font-size: 0.94rem;
   line-height: 1.72;
 }
 
 .preview-src-text,
 .preview-dst-text {
-  font-size: 1rem;
+  font-size: 0.88rem;
   line-height: 1.65;
 }
 
@@ -1796,7 +1769,7 @@ body.serif-preview .preview-dst-text {
 
 .preview-chunk-badge {
   font-family: var(--font-mono);
-  font-size: 1rem;
+  font-size: 0.67rem;
   font-weight: 600;
   color: var(--text-muted);
 }
@@ -1814,7 +1787,7 @@ body.serif-preview .preview-dst-text {
 
 .btn-xs {
   font-family: var(--font-sans);
-  font-size: 1rem;
+  font-size: 0.69rem;
   font-weight: 600;
   padding: 0.16rem 0.48rem;
   border-radius: 4px;
@@ -1833,7 +1806,7 @@ body.serif-preview .preview-dst-text {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  font-size: 1rem;
+  font-size: 0.67rem;
   font-weight: 600;
   color: var(--success-text);
   background: var(--success-soft);
@@ -1849,7 +1822,7 @@ body.serif-preview .preview-dst-text {
   background: var(--bg-elevated);
   border-left: 2.5px solid var(--primary);
   font-family: var(--font-sans);
-  font-size: 1rem;
+  font-size: 0.75rem;
   line-height: 1.5;
   color: var(--text-muted);
 }
@@ -1863,7 +1836,7 @@ body.serif-preview .preview-dst-text {
   color: var(--text-main);
   border: 1px solid var(--primary);
   border-radius: var(--radius-xs);
-  font-size: 1rem;
+  font-size: 0.86rem;
   font-family: var(--font-sans);
   line-height: 1.55;
   resize: vertical;
@@ -1912,7 +1885,7 @@ body.serif-preview .preview-dst-text {
   border: 1px solid transparent;
   border-radius: 4px;
   padding: 0.24rem 0.45rem;
-  font-size: 1rem;
+  font-size: 0.79rem;
   font-family: var(--font-sans);
 }
 .glossary-inline-input:focus {
@@ -1938,7 +1911,7 @@ body.serif-preview .preview-dst-text {
   border-radius: var(--radius-xs);
   background: var(--bg-input);
   border: 1px solid var(--border);
-  font-size: 1rem;
+  font-size: 0.79rem;
 }
 .agent-log-left {
   display: flex;
@@ -1958,7 +1931,7 @@ body.serif-preview .preview-dst-text {
   align-items: flex-end;
   gap: 0.15rem;
   font-family: var(--font-mono);
-  font-size: 1rem;
+  font-size: 0.69rem;
   color: var(--text-muted);
   white-space: nowrap;
 }
@@ -2005,11 +1978,11 @@ body.serif-preview .preview-dst-text {
   gap: 0.1rem;
 }
 .modal-header h3 {
-  font-size: 1rem;
+  font-size: 0.98rem;
   font-weight: 700;
 }
 .modal-subtitle {
-  font-size: 1rem;
+  font-size: 0.73rem;
   color: var(--text-muted);
 }
 
@@ -2042,7 +2015,7 @@ body.serif-preview .preview-dst-text {
   gap: 0.32rem;
 }
 .field-block label {
-  font-size: 1rem;
+  font-size: 0.76rem;
   font-weight: 600;
   color: var(--text-sub);
 }
@@ -2052,7 +2025,7 @@ body.serif-preview .preview-dst-text {
   justify-content: space-between;
 }
 .help-text {
-  font-size: 1rem;
+  font-size: 0.74rem;
   color: var(--text-muted);
 }
 
@@ -2081,7 +2054,7 @@ body.serif-preview .preview-dst-text {
   justify-content: space-between;
   padding-bottom: 0.45rem;
   border-bottom: 1px solid var(--border);
-  font-size: 1rem;
+  font-size: 0.82rem;
 }
 
 .settings-bottom-grid {
@@ -2099,7 +2072,7 @@ body.serif-preview .preview-dst-text {
 .connection-alert {
   padding: 0.65rem 0.85rem;
   border-radius: var(--radius-xs);
-  font-size: 1rem;
+  font-size: 0.79rem;
 }
 .connection-alert.alert-success {
   background: var(--success-soft);
@@ -2146,7 +2119,7 @@ body.serif-preview .preview-dst-text {
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
   box-shadow: var(--shadow-md);
-  font-size: 1rem;
+  font-size: 0.8rem;
   transition: all 0.25s ease;
 }
 
@@ -2207,7 +2180,7 @@ body.serif-preview .preview-dst-text {
 .metric-chip {
   font-weight: 700;
   color: var(--text-main);
-  font-size: 1rem;
+  font-size: 0.82rem;
 }
 
 .progress-meta-right {
@@ -2217,7 +2190,7 @@ body.serif-preview .preview-dst-text {
 .mode-hint {
   display: block;
   margin-top: 0.25rem;
-  font-size: 1rem;
+  font-size: 0.7rem;
   color: var(--text-muted);
   line-height: 1.3;
 }
@@ -2240,7 +2213,7 @@ body.serif-preview .preview-dst-text {
   resize: vertical;
   padding: 0.65rem 0.75rem;
   font-family: var(--font-sans);
-  font-size: 1rem;
+  font-size: 0.85rem;
   line-height: 1.5;
   color: var(--text-main);
   background: var(--bg-input);
@@ -2273,16 +2246,16 @@ body.serif-preview .preview-dst-text {
 .bookinfo-cover { width: 64px; height: 92px; object-fit: cover; border-radius: 6px; flex: none; }
 .bookinfo-body { min-width: 0; flex: 1; }
 .bookinfo-title { font-weight: 600; color: var(--text-main); }
-.bookinfo-meta { font-size: 1rem; color: var(--text-muted); margin: 0.15rem 0 0.5rem; }
-.bookinfo-sec { margin-top: 0.5rem; font-size: 1rem; color: var(--text-sub); }
+.bookinfo-meta { font-size: 0.82rem; color: var(--text-muted); margin: 0.15rem 0 0.5rem; }
+.bookinfo-sec { margin-top: 0.5rem; font-size: 0.88rem; color: var(--text-sub); }
 .bookinfo-sec ul { margin: 0.3rem 0 0 1.1rem; padding: 0; }
-.bookinfo-tag { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px; background: var(--warning-soft); font-size: 1rem; }
+.bookinfo-tag { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px; background: var(--warning-soft); font-size: 0.78rem; }
 .bookinfo-tag.ok { background: var(--success-soft); color: var(--success-text); }
-.bookinfo-kind { font-size: 1rem; color: var(--primary-text); margin-right: 0.3rem; }
+.bookinfo-kind { font-size: 0.75rem; color: var(--primary-text); margin-right: 0.3rem; }
 .bookinfo-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.5rem; }
-.bookinfo-chip { padding: 0.2rem 0.65rem; border: 1px solid var(--border); border-radius: 999px; font-size: 1rem; color: var(--primary-text); text-decoration: none; }
+.bookinfo-chip { padding: 0.2rem 0.65rem; border: 1px solid var(--border); border-radius: 999px; font-size: 0.8rem; color: var(--primary-text); text-decoration: none; }
 .bookinfo-chip:hover { background: var(--primary-soft); }
-.bookinfo-warn, .bookinfo-empty { font-size: 1rem; color: var(--text-muted); }
+.bookinfo-warn, .bookinfo-empty { font-size: 0.85rem; color: var(--text-muted); }
 @media (max-width: 640px) { .bookinfo-card { flex-direction: column; } }
 
 /* ---- Honest-AI status: LLM banner, engine chips, untranslated markers ---- */
@@ -2291,7 +2264,7 @@ body.serif-preview .preview-dst-text {
   align-items: flex-start;
   gap: 0.75rem;
   padding: 0.7rem 1.1rem;
-  font-size: 1rem;
+  font-size: 0.8rem;
   line-height: 1.5;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
@@ -2311,7 +2284,7 @@ body.serif-preview .preview-dst-text {
 .llm-banner-msg, .llm-banner-help { margin-top: 0.2rem; color: var(--text-sub); }
 .llm-banner code {
   font-family: var(--font-mono);
-  font-size: 1rem;
+  font-size: 0.74rem;
   padding: 0.05rem 0.3rem;
   border-radius: var(--radius-xs);
   background: var(--bg-hover);
@@ -2321,12 +2294,12 @@ body.serif-preview .preview-dst-text {
   border: 0;
   color: inherit;
   cursor: pointer;
-  font-size: 1rem;
+  font-size: 0.9rem;
   padding: 0 0.25rem;
 }
 .engine-chip {
   display: inline-block;
-  font-size: 1rem;
+  font-size: 0.68rem;
   font-weight: 600;
   padding: 0.1rem 0.5rem;
   border-radius: 999px;
@@ -2354,11 +2327,11 @@ body.serif-preview .preview-dst-text {
 .job-warn-list {
   margin: 0.35rem 0 0;
   padding-left: 1.1rem;
-  font-size: 1rem;
+  font-size: 0.74rem;
   color: var(--warning-text);
 }
 .preview-untranslated-badge {
-  font-size: 1rem;
+  font-size: 0.66rem;
   font-weight: 700;
   padding: 0.08rem 0.45rem;
   border-radius: 999px;
@@ -2367,171 +2340,3 @@ body.serif-preview .preview-dst-text {
   margin-left: 0.4rem;
 }
 .preview-pair-card.is-untranslated { border-color: var(--warning); }
-
-
-/* ==========================================================================
-   Việt Anh Design System - lớp thương hiệu (đặt cuối để ghi đè)
-   ========================================================================== */
-body {
-  letter-spacing: 0;
-}
-[data-theme="dark"] body {
-  background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
-  background-size: 18px 18px;
-}
-
-/* Nút vuông, chữ thưa .03em, hover nhấc 2px + bóng navy nhẹ */
-.btn,
-.btn-sm,
-.btn-xs,
-.btn-new-campaign,
-.btn-outline-sm,
-.btn-ghost-sm,
-.btn-danger-sm,
-.btn-icon-sm,
-.btn-icon-ghost,
-.btn-sidebar-util,
-.btn-sidebar-vault,
-.btn-toggle-composer,
-.btn-link-sm,
-.btn-close {
-  border-radius: 0;
-  letter-spacing: 0.03em;
-  font-weight: 700;
-  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease, border-color 0.15s ease;
-}
-.btn:hover:not(:disabled),
-.btn-new-campaign:hover,
-.btn-sm:hover:not(:disabled),
-.btn-outline-sm:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(20, 21, 58, 0.18);
-}
-.btn:focus-visible,
-.btn-sm:focus-visible,
-input:focus-visible,
-select:focus-visible,
-textarea:focus-visible,
-button:focus-visible {
-  outline: 2px solid #e2e3f0;
-  outline-offset: 2px;
-  box-shadow: 0 0 0 4px rgba(20, 21, 58, 0.35);
-}
-[data-theme="dark"] .btn:focus-visible,
-[data-theme="dark"] button:focus-visible,
-[data-theme="dark"] input:focus-visible,
-[data-theme="dark"] select:focus-visible,
-[data-theme="dark"] textarea:focus-visible {
-  outline-color: #f9dd0e;
-  box-shadow: none;
-}
-
-/* Nút chính: navy; CTA vàng gradient chữ navy chỉ cho hành động chính của màn hình */
-.btn-primary {
-  background: var(--primary);
-  color: var(--on-primary);
-}
-.btn-primary:hover:not(:disabled) {
-  background: var(--primary-hover);
-}
-.btn-new-campaign,
-.btn-primary-gradient,
-#btnSearchAndPick {
-  background: var(--cta-gradient, linear-gradient(135deg, #f9dd0e, #e0b90c));
-  color: #14153a;
-  border: 1px solid transparent;
-  text-transform: none;
-}
-.btn-new-campaign:hover,
-.btn-primary-gradient:hover:not(:disabled),
-#btnSearchAndPick:hover:not(:disabled) {
-  background: linear-gradient(135deg, #fbe53a, #e8c40a);
-  color: #14153a;
-}
-
-/* Thẻ 10px, input 6px, tag 3px */
-input[type="text"],
-input[type="number"],
-input[type="password"],
-input[type="search"],
-select,
-textarea {
-  border-radius: 6px;
-}
-.fmt-badge,
-.brand-tag,
-.agent-num-tag,
-.tag,
-.badge {
-  border-radius: 3px;
-}
-
-/* Wordmark Trường Việt Anh thay logo trên nền navy (chữ 800, giãn .14em, vạch vàng 34x2) */
-.sidebar-brand {
-  height: auto;
-  min-height: 64px;
-  padding: 0.9rem 1rem;
-}
-.brand-logo-box {
-  display: none;
-}
-.va-wordmark {
-  display: block;
-  font-size: 1rem;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-  color: #ffffff;
-  line-height: 1.2;
-}
-.va-wordmark::after {
-  content: "";
-  display: block;
-  width: 34px;
-  height: 2px;
-  margin: 0.35rem 0 0.45rem;
-  background: var(--gold, #e8c40a);
-}
-.brand-name {
-  letter-spacing: 0;
-  font-weight: 800;
-}
-.brand-tag {
-  background: rgba(249, 221, 14, 0.16);
-  color: #f9dd0e;
-  border-color: rgba(249, 221, 14, 0.45);
-}
-
-/* Nhãn vàng nâu trên nền sáng */
-.agent-num-tag,
-.sidebar-section-label {
-  letter-spacing: 0.06em;
-}
-[data-theme="light"] .agent-node-card .agent-num-tag {
-  color: var(--gold-text);
-}
-
-/* Thanh điều hướng đang chọn: vạch vàng bên trái */
-.sidebar-nav-item.active {
-  box-shadow: inset 3px 0 0 #f9dd0e;
-}
-
-/* Chữ 16px: thanh trên và thẻ agent cần co giãn theo nội dung */
-.topbar {
-  height: auto;
-  min-height: 60px;
-  padding-top: 0.5rem;
-  padding-bottom: 0.5rem;
-  flex-wrap: wrap;
-}
-.agent-node-top {
-  flex-wrap: wrap;
-  align-items: flex-start;
-}
-.agent-num-tag {
-  white-space: nowrap;
-  font-size: 0.8125rem;
-  letter-spacing: 0.08em;
-}
-.agent-node-card select {
-  text-overflow: ellipsis;
-}

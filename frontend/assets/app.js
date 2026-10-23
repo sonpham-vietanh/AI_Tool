@@ -1007,7 +1007,7 @@
           : `<div class="book-cover-fallback">${fmt === "epub" ? "📗" : "📕"}</div>`;
 
         const yearBadge = item.year
-          ? `<span style="display:inline-block;padding:1px 6px;border-radius:4px;background:var(--primary-soft);color:var(--primary-text);font-weight:600;font-size:0.72rem;margin-right:4px;">${escapeHtml(
+          ? `<span style="display:inline-block;padding:1px 6px;border-radius:4px;background:rgba(99,102,241,0.12);color:#818cf8;font-weight:600;font-size:0.72rem;margin-right:4px;">${escapeHtml(
               item.year
             )}</span>`
           : "";
@@ -2034,7 +2034,7 @@
     // Theme Toggle (Obsidian Dark vs Warm Paper Light)
     el("btnToggleTheme")?.addEventListener("click", () => {
       const root = document.documentElement;
-      const current = root.getAttribute("data-theme") || "light";
+      const current = root.getAttribute("data-theme") || "dark";
       const next = current === "dark" ? "light" : "dark";
       root.setAttribute("data-theme", next);
       root.classList.toggle("dark", next === "dark");
